@@ -278,13 +278,21 @@ async function loadCandidatesForSource(source: QuizSourceConfig) {
   }
 
   const mappings = validateMappings(source.mappings)
-  const response = await notion.dataSources.query({
-    data_source_id: source.dataSourceId,
-    result_type: "page",
-    page_size: 100,
-  })
+  const pages = []
+  let startCursor: string | undefined
 
-  const pages = response.results.filter(isFullPage)
+  do {
+    const response = await notion.dataSources.query({
+      data_source_id: source.dataSourceId,
+      result_type: "page",
+      page_size: 100,
+      start_cursor: startCursor,
+    })
+
+    pages.push(...response.results.filter(isFullPage))
+    startCursor = response.has_more ? (response.next_cursor ?? undefined) : undefined
+  } while (startCursor)
+
   return pages
     .map<QuizCandidate | null>((page) => {
       const question = getRichTextValue(getPropertyById(page.properties, mappings.question))

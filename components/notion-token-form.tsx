@@ -15,11 +15,15 @@ export function NotionTokenForm() {
   const [state, formAction, isPending] = useActionState(connectNotion, initialState)
 
   return (
-    <form action={formAction} className="panel form-panel">
+    <form action={formAction} className="panel form-panel auth-panel">
       <div className="panel-header">
-        <span className="eyebrow">Step 1</span>
-        <h2>Connect Your Notion</h2>
+        <span className="eyebrow">接続</span>
+        <h2>Notion を接続する</h2>
       </div>
+
+      <p className="help-text">
+        Internal Integration Token を入力すると、接続状態を保存してこのまま設定と出題に進めます。
+      </p>
 
       <label className="field">
         <span>Internal Integration Token</span>
@@ -40,7 +44,7 @@ export function NotionTokenForm() {
       {state.error ? <p className="error-text">{state.error}</p> : null}
 
       <button type="submit" className="primary-button" disabled={isPending}>
-        {isPending ? "Connecting..." : "Connect"}
+        {isPending ? "接続中..." : "接続する"}
       </button>
     </form>
   )

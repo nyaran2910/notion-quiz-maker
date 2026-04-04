@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server"
-
 import { getDataSourceSchema } from "@/lib/notion/api"
+import { jsonNoStore } from "@/lib/http"
 
 export const dynamic = "force-dynamic"
 
@@ -9,11 +8,11 @@ export async function GET(_request: Request, context: RouteContext<"/api/notion/
 
   try {
     const schema = await getDataSourceSchema(id)
-    return NextResponse.json({ schema })
+    return jsonNoStore({ schema })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load schema"
     const status = message.includes("not connected") ? 401 : 500
 
-    return NextResponse.json({ error: message }, { status })
+    return jsonNoStore({ error: message }, { status })
   }
 }

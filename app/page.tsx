@@ -1,5 +1,7 @@
+import Link from "next/link"
+
 import { NotionTokenForm } from "@/components/notion-token-form"
-import { SetupWorkspace } from "@/components/setup-workspace"
+import { SiteFooterNav, SiteHeader } from "@/components/site-shell"
 import { getSessionProfile } from "@/lib/notion/api"
 
 export const dynamic = "force-dynamic"
@@ -9,20 +11,38 @@ export default async function Page() {
 
   return (
     <main className="page shell">
-      <section className="hero">
-        <span className="eyebrow">Notion Quiz Builder</span>
-        <h1>Connect a workspace, inspect your quiz schema, and prepare a target data source.</h1>
+      <SiteHeader current="home" />
+
+      <section className="hero home-hero">
+        <div className="hero-label-row">
+          <span className="eyebrow">ホーム</span>
+          <span className="hero-chip">PC / スマホ対応</span>
+        </div>
+        <h1>Notion クイズ</h1>
         <p className="hero-copy">
-          この画面では、ユーザー自身の Notion integration token を使って接続し、クイズ対象にする
-          data source を選択します。
+          NotionのDB機能を使って自作クイズを作ってみよう！
         </p>
       </section>
 
       {profile ? (
-        <SetupWorkspace workspaceName={profile.workspaceName} />
+        <section className="nav-grid ankilot-grid">
+          <Link href="/setup" className="nav-card ankilot-card">
+            <span className="list-label">つくる</span>
+            <h2>設定</h2>
+            <p className="help-text">対象のデータベースの選択、必須プロパティのマッピングを行います。</p>
+          </Link>
+
+          <Link href="/quiz" className="nav-card ankilot-card">
+            <span className="list-label">おぼえる</span>
+            <h2>クイズ</h2>
+            <p className="help-text">複数のソースを横断した 4 択クイズを実行します。</p>
+          </Link>
+        </section>
       ) : (
         <NotionTokenForm />
       )}
+
+      <SiteFooterNav current="home" />
     </main>
   )
 }

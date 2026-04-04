@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { RichTextRenderer } from "@/components/rich-text-renderer"
 import type { QuizQuestion, QuizSourceConfig } from "@/lib/notion/quiz-types"
@@ -26,6 +26,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const currentQuestion = quiz?.questions[currentIndex] ?? null
   const isFinished = Boolean(quiz) && currentIndex >= (quiz?.questions.length ?? 0)
@@ -37,6 +38,16 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
 
     return currentQuestion.options.find((option) => option.pageId === currentQuestion.pageId)?.id ?? null
   }, [currentQuestion])
+
+  useEffect(() => {
+    if (!selectedOptionId || !nextButtonRef.current) {
+      return
+    }
+
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches) {
+      nextButtonRef.current.focus()
+    }
+  }, [selectedOptionId])
 
   async function start() {
     setLoading(true)
@@ -106,11 +117,6 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         throw new Error(payload.error ?? "Failed to record answer")
       }
 
-      if (nextIsCorrect) {
-        window.setTimeout(() => {
-          goNext()
-        }, 900)
-      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to record answer")
     } finally {
@@ -127,13 +133,16 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   return (
     <section className="panel quiz-panel">
       <div className="panel-header">
-        <span className="eyebrow">Step 3</span>
+        <span className="eyebrow">出題</span>
         <h2>Quiz Runner</h2>
       </div>
 
-      <p className="help-text">
-        {sources.length} 個の data source を束ねて 4 択クイズを生成します。
-      </p>
+      <div className="inline-stats">
+        <span className="stat-chip">source {sources.length}</span>
+        <span className="stat-chip">4 択</span>
+      </div>
+
+      <p className="help-text">{sources.length} 個の data source を束ねて 4 択クイズを生成します。</p>
       {error ? <p className="error-text">{error}</p> : null}
 
       {!quiz ? (
@@ -150,7 +159,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           </label>
 
           <button type="button" className="primary-button" onClick={start} disabled={loading}>
-            {loading ? "Preparing..." : "Start quiz"}
+            {loading ? "準備中..." : "開始する"}
           </button>
         </div>
       ) : null}
@@ -159,16 +168,14 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         <div className="quiz-stage">
           <div className="quiz-stage-header">
             <span className="meta-text">
-              Question {currentIndex + 1} / {quiz.questions.length}
+              問題 {currentIndex + 1} / {quiz.questions.length}
             </span>
-            <span className="meta-text">
-              candidate pool: {quiz.totalCandidates} / sources: {quiz.sourceCount}
-            </span>
+            <span className="meta-text">候補 {quiz.totalCandidates} / source {quiz.sourceCount}</span>
           </div>
 
           <div className="question-card">
             <div className="question-source">
-              <span className="eyebrow">Source</span>
+              <span className="list-label">source</span>
               <span className="meta-text">{currentQuestion.dataSourceName}</span>
             </div>
             <div className="question-copy">
@@ -181,7 +188,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           </div>
 
           <div className="options-grid">
-            {currentQuestion.options.map((option) => {
+            {currentQuestion.options.map((option, index) => {
               const wasChosen = selectedOptionId === option.id
               const isCorrectOption = correctOptionId === option.id
               const statusClass = !selectedOptionId
@@ -200,6 +207,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
                   disabled={Boolean(selectedOptionId)}
                   onClick={() => submitAnswer(option.id, option.pageId)}
                 >
+                  <span className="option-index">{String.fromCharCode(65 + index)}</span>
                   <RichTextRenderer items={option.answer} />
                 </button>
               )
@@ -210,7 +218,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
             <div className="answer-panel">
               <div className="answer-result">
                 <span className={isCorrect ? "ok-pill" : "warn-pill"}>
-                  {isCorrect ? "Correct" : "Incorrect"}
+                  {isCorrect ? "正解" : "不正解"}
                 </span>
               </div>
 
@@ -232,13 +240,9 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
                 <img src={currentQuestion.imageUrl} alt="" className="question-image" />
               ) : null}
 
-              {!isCorrect ? (
-                <button type="button" className="primary-button" onClick={goNext}>
-                  Next question
-                </button>
-              ) : (
-                <p className="status-text">正解したので次の問題へ進みます...</p>
-              )}
+              <button ref={nextButtonRef} type="button" className="primary-button" onClick={goNext}>
+                次の問題へ
+              </button>
             </div>
           ) : null}
         </div>
@@ -273,7 +277,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
               setCorrectCount(0)
             }}
           >
-            Start another set
+            もう一度はじめる
           </button>
         </div>
       ) : null}
