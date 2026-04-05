@@ -26,7 +26,7 @@ export function NotionTokenForm() {
       </p>
 
       <label className="field">
-        <span>Internal Integration Token</span>
+        <span>連携トークン</span>
         <input
           type="password"
           name="token"
@@ -38,7 +38,7 @@ export function NotionTokenForm() {
       </label>
 
       <p className="help-text">
-        トークンはサーバー側の HttpOnly cookie に保存し、ブラウザ JavaScript からは参照させません。
+        トークンはサーバー側の HttpOnly Cookie に保存し、ブラウザの JavaScript からは参照できないようにします。
       </p>
 
       {state.error ? <p className="error-text">{state.error}</p> : null}

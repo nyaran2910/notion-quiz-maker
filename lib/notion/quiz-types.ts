@@ -13,12 +13,6 @@ export type QuizRichTextItem = {
   }
 }
 
-export type QuizOption = {
-  id: string
-  pageId: string
-  answer: QuizRichTextItem[]
-}
-
 export type QuizQuestion = {
   id: string
   pageId: string
@@ -28,7 +22,6 @@ export type QuizQuestion = {
   correctAnswer: QuizRichTextItem[]
   explanation: QuizRichTextItem[]
   imageUrl: string | null
-  options: QuizOption[]
 }
 
 export type QuizSourceConfig = {

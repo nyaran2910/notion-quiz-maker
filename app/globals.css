@@ -78,13 +78,14 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 0 14px;
+  padding: 10px 0 16px;
   border-bottom: 1px solid var(--line);
 }
 
 .site-brand {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .site-logo {
@@ -92,6 +93,7 @@ code {
   font-weight: 700;
   text-decoration: none;
   letter-spacing: 0.01em;
+  line-height: 1.2;
 }
 
 .site-tagline {
@@ -126,7 +128,8 @@ code {
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    transform 120ms ease;
 }
 
 .site-nav-link,
@@ -140,6 +143,13 @@ code {
   border-color: var(--line-strong);
   background: var(--surface-soft);
   font-weight: 700;
+}
+
+.site-nav-link:hover,
+.footer-tab:hover,
+.ghost-button:hover,
+.primary-button:hover {
+  transform: translateY(-1px);
 }
 
 .primary-button {
@@ -219,8 +229,7 @@ code {
 .hero-chip,
 .stat-chip,
 .ok-pill,
-.warn-pill,
-.option-index {
+.warn-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -329,7 +338,6 @@ code {
 .footer-tab:focus-visible,
 .ghost-button:focus-visible,
 .primary-button:focus-visible,
-.option-card:focus-visible,
 .field input:focus-visible,
 .field select:focus-visible {
   outline: 3px solid rgba(61, 111, 149, 0.2);
@@ -441,40 +449,19 @@ code {
   background: var(--surface);
 }
 
-.options-grid {
+.flashcard-actions {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
 }
 
-.option-card {
-  display: grid;
-  gap: 10px;
-  text-align: left;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  line-height: 1.7;
+.flashcard-button {
+  min-height: 56px;
 }
 
-.option-index {
-  width: 28px;
-  height: 28px;
-  background: var(--surface-soft);
-  color: var(--muted);
-}
-
-.option-card.is-correct {
-  border-color: #99c1aa;
-  background: var(--ok-soft);
-}
-
-.option-card.is-wrong {
-  border-color: #d9a6a6;
-  background: var(--danger-soft);
+.flashcard-next-button {
+  grid-column: 1 / -1;
 }
 
 .answer-detail {
@@ -540,7 +527,7 @@ code {
 @media (max-width: 920px) {
   .workspace-grid,
   .nav-grid,
-  .options-grid,
+  .flashcard-actions,
   .summary-grid,
   .ready-grid {
     grid-template-columns: 1fr;
@@ -549,6 +536,23 @@ code {
   .site-header,
   .data-source-main {
     display: grid;
+  }
+
+  .site-header {
+    gap: 14px;
+  }
+
+  .site-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .site-nav-link {
+    min-width: 0;
+    padding: 10px 8px;
+    text-align: center;
+    white-space: nowrap;
   }
 
   .panel-header-row {
@@ -578,5 +582,56 @@ code {
   .site-nav-link,
   .footer-tab {
     flex: 1 1 0;
+  }
+
+  .site-logo {
+    font-size: 1rem;
+  }
+
+  .site-tagline {
+    font-size: 0.84rem;
+    line-height: 1.5;
+  }
+
+  .hero {
+    padding: 18px;
+  }
+
+  .hero-label-row {
+    align-items: flex-start;
+  }
+
+  .hero-chip {
+    white-space: nowrap;
+  }
+
+  .card-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .data-source-main {
+    gap: 12px;
+  }
+
+  .question-card,
+  .requirement-card,
+  .summary-card,
+  .answer-panel,
+  .data-source-card {
+    padding: 14px;
+  }
+
+  .flashcard-button,
+  .site-nav-link,
+  .footer-tab {
+    min-height: 48px;
+  }
+
+  .footer-tabs {
+    gap: 8px;
+    padding: 8px;
+    border-radius: 14px;
   }
 }

@@ -13,10 +13,12 @@ export function QuizWorkspace() {
   const [error, setError] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [propertyMappings, setPropertyMappings] = useState(loadSavedMappings())
+  const [hasLoadedSavedConfig, setHasLoadedSavedConfig] = useState(false)
 
   useEffect(() => {
     setSelectedIds(loadSavedSelection())
     setPropertyMappings(loadSavedMappings())
+    setHasLoadedSavedConfig(true)
   }, [])
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export function QuizWorkspace() {
     }
   }, [])
 
-  const readySources = selectedIds
+  const readySources = (hasLoadedSavedConfig ? selectedIds : [])
     .map((id) => {
       const dataSource = dataSources.find((item) => item.id === id)
       const mappings = propertyMappings[id] ?? {}
@@ -80,15 +82,15 @@ export function QuizWorkspace() {
       <section className="panel">
         <div className="panel-header">
           <span className="eyebrow">準備完了</span>
-          <h2>出題できる data source</h2>
+          <h2>出題できるデータベース</h2>
         </div>
 
-        {loading ? <p className="status-text">Loading selected sources...</p> : null}
+        {loading ? <p className="status-text">選択済みデータベースを読み込み中...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
 
         {!loading && readySources.length === 0 ? (
           <p className="help-text">
-            まだクイズを開始できる data source がありません。`/setup` で対象選択とプロパティマッピングを済ませてください。
+            まだクイズを開始できるデータベースがありません。`/setup` で対象選択とプロパティマッピングを済ませてください。
           </p>
         ) : null}
 
@@ -96,7 +98,7 @@ export function QuizWorkspace() {
           <div className="summary-grid ready-grid">
             {readySources.map((source) => (
               <div key={source.dataSourceId} className="summary-card">
-                <span className="list-label">ready</span>
+                <span className="list-label">準備完了</span>
                 <strong>{source.dataSourceName}</strong>
               </div>
             ))}

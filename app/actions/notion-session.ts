@@ -27,6 +27,8 @@ export async function connectNotion(
     const cookieStore = await cookies()
     cookieStore.set(NOTION_TOKEN_COOKIE, token.trim(), NOTION_TOKEN_COOKIE_OPTIONS)
     revalidatePath("/")
+    revalidatePath("/setup")
+    revalidatePath("/quiz")
 
     return { error: null }
   } catch {
@@ -38,4 +40,6 @@ export async function disconnectNotion() {
   const cookieStore = await cookies()
   cookieStore.delete(NOTION_TOKEN_COOKIE)
   revalidatePath("/")
+  revalidatePath("/setup")
+  revalidatePath("/quiz")
 }

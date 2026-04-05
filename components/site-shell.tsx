@@ -15,12 +15,12 @@ export function SiteHeader({ current }: SiteShellProps) {
     <header className="site-header">
       <div className="site-brand">
         <Link href="/" className="site-logo">
-          Notion Quiz
+          ノーション暗記カード
         </Link>
-        <p className="site-tagline">シンプルなクイズ学習ワークスペース</p>
+        <p className="site-tagline">シンプルに続けられる暗記学習ワークスペース</p>
       </div>
 
-      <nav className="site-nav" aria-label="Global">
+      <nav className="site-nav" aria-label="全体ナビゲーション">
         {items.map((item) => (
           <Link
             key={item.key}
@@ -37,7 +37,7 @@ export function SiteHeader({ current }: SiteShellProps) {
 
 export function SiteFooterNav({ current }: SiteShellProps) {
   return (
-    <nav className="footer-tabs" aria-label="Primary">
+    <nav className="footer-tabs" aria-label="メインナビゲーション">
       {items.map((item) => (
         <Link
           key={item.key}

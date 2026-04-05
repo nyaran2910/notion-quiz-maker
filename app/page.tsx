@@ -16,11 +16,11 @@ export default async function Page() {
       <section className="hero home-hero">
         <div className="hero-label-row">
           <span className="eyebrow">ホーム</span>
-          <span className="hero-chip">PC / スマホ対応</span>
+          <span className="hero-chip">スマホ対応</span>
         </div>
-        <h1>Notion クイズ</h1>
+        <h1>ノーション暗記カード</h1>
         <p className="hero-copy">
-          NotionのDB機能を使って自作クイズを作ってみよう！
+          Notionのデータベースを使って、自分だけの暗記カード学習を回せます。
         </p>
       </section>
 
@@ -35,7 +35,7 @@ export default async function Page() {
           <Link href="/quiz" className="nav-card ankilot-card">
             <span className="list-label">おぼえる</span>
             <h2>クイズ</h2>
-            <p className="help-text">複数のソースを横断した 4 択クイズを実行します。</p>
+            <p className="help-text">複数のデータベースを横断した暗記カード学習を実行します。</p>
           </Link>
         </section>
       ) : (

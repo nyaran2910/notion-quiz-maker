@@ -92,7 +92,7 @@ function getPropertyCreationPayload(key: QuizRequirementKey) {
           select: {
             options: [
               { name: "High", color: "red" as const },
-              { name: "Medium", color: "yellow" as const },
+              { name: "Mid", color: "yellow" as const },
               { name: "Low", color: "gray" as const },
             ],
           },

@@ -157,35 +157,29 @@ function getImageUrl(property: NotionPageProperty | null): string | null {
 }
 
 function getPriorityWeight(priority: string | null) {
-  switch (priority) {
-    case "High":
+  const normalized = priority?.trim().toUpperCase()
+
+  switch (normalized) {
+    case "HIGH":
       return 1
-    case "Medium":
-      return 0.6
-    case "Low":
-      return 0.2
+    case "MID":
+    case "MEDIUM":
+    case "MIDDLE":
+      return 0.58
+    case "LOW":
+      return 0.18
     default:
-      return 0.4
+      return 0.58
   }
 }
 
 function getCandidateScore(accuracy: number, askedCount: number, priority: string | null) {
-  const difficultyWeight = 1 - Math.min(Math.max(accuracy, 0), 1)
-  const freshnessWeight = 1 / (askedCount + 1)
+  const normalizedAccuracy = Math.min(Math.max(accuracy, 0), 1)
+  const difficultyWeight = 1 - normalizedAccuracy
+  const freshnessWeight = 1 / Math.sqrt(Math.max(askedCount, 0) + 1)
   const priorityWeight = getPriorityWeight(priority)
 
-  return 0.5 * difficultyWeight + 0.3 * freshnessWeight + 0.2 * priorityWeight
-}
-
-function shuffleArray<T>(items: T[]) {
-  const next = [...items]
-
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    ;[next[index], next[swapIndex]] = [next[swapIndex], next[index]]
-  }
-
-  return next
+  return 0.45 * priorityWeight + 0.35 * difficultyWeight + 0.2 * freshnessWeight
 }
 
 function pickWeightedCandidates(candidates: QuizCandidate[], count: number) {
@@ -213,30 +207,7 @@ function pickWeightedCandidates(candidates: QuizCandidate[], count: number) {
   return selected
 }
 
-function buildQuestion(candidate: QuizCandidate, candidates: QuizCandidate[]): QuizQuestion | null {
-  const distractors = shuffleArray(
-    candidates.filter(
-      (item) => item.pageId !== candidate.pageId && item.answerText !== candidate.answerText && item.answerText.length > 0
-    )
-  ).slice(0, 3)
-
-  if (distractors.length < 3) {
-    return null
-  }
-
-  const options = shuffleArray([
-    {
-      id: `${candidate.pageId}-correct`,
-      pageId: candidate.pageId,
-      answer: candidate.answer,
-    },
-    ...distractors.map((item) => ({
-      id: `${item.pageId}-option`,
-      pageId: item.pageId,
-      answer: item.answer,
-    })),
-  ])
-
+function buildQuestion(candidate: QuizCandidate): QuizQuestion {
   return {
     id: candidate.pageId,
     pageId: candidate.pageId,
@@ -246,7 +217,6 @@ function buildQuestion(candidate: QuizCandidate, candidates: QuizCandidate[]): Q
     correctAnswer: candidate.answer,
     explanation: candidate.explanation,
     imageUrl: candidate.imageUrl,
-    options,
   }
 }
 
@@ -345,29 +315,16 @@ export async function startQuiz(
   const candidateGroups = await Promise.all(validatedSources.map((source) => loadCandidatesForSource(source)))
   const candidates = candidateGroups.flat()
 
-  const viableCandidates = candidates.filter((candidate) => {
-    const distractorCount = candidates.filter(
-      (item) => item.pageId !== candidate.pageId && item.answerText !== candidate.answerText && item.answerText.length > 0
-    ).length
-
-    return distractorCount >= 3
-  })
-
-  if (viableCandidates.length === 0) {
-    throw new Error("4択を作れるだけの回答候補がありません")
+  if (candidates.length === 0) {
+    throw new Error("出題できる候補がありません")
   }
 
-  const selectedCandidates = pickWeightedCandidates(
-    viableCandidates,
-    Math.max(1, Math.min(questionCount, viableCandidates.length))
-  )
+  const selectedCandidates = pickWeightedCandidates(candidates, Math.max(1, Math.min(questionCount, candidates.length)))
 
-  const questions = selectedCandidates
-    .map((candidate) => buildQuestion(candidate, viableCandidates))
-    .filter((question): question is QuizQuestion => Boolean(question))
+  const questions = selectedCandidates.map((candidate) => buildQuestion(candidate))
 
   return {
-    totalCandidates: viableCandidates.length,
+    totalCandidates: candidates.length,
     sourceCount: validatedSources.length,
     questions,
   }
