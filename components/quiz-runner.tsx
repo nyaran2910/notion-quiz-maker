@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 
 import { RichTextRenderer } from "@/components/rich-text-renderer"
 import type { QuizQuestion, QuizSourceConfig } from "@/lib/notion/quiz-types"
@@ -18,34 +18,38 @@ type QuizSession = {
 
 export function QuizRunner({ sources }: QuizRunnerProps) {
   const [questionCount, setQuestionCount] = useState(5)
+  const [customQuestionCount, setCustomQuestionCount] = useState("")
   const [quiz, setQuiz] = useState<QuizSession | null>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [hasAnswered, setHasAnswered] = useState(false)
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
+  const [hasRevealedAnswer, setHasRevealedAnswer] = useState(false)
   const [correctCount, setCorrectCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const nextButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const currentQuestion = quiz?.questions[currentIndex] ?? null
   const isFinished = Boolean(quiz) && currentIndex >= (quiz?.questions.length ?? 0)
 
-  useEffect(() => {
-    if (!hasAnswered || !nextButtonRef.current) {
-      return
+  const presetQuestionCounts = [5, 10, 20, 50, 100]
+
+  function getStartQuestionCount() {
+    const trimmed = customQuestionCount.trim()
+
+    if (trimmed.length === 0) {
+      return questionCount
     }
 
-    if (typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches) {
-      nextButtonRef.current.focus()
-    }
-  }, [hasAnswered])
+    const parsed = Number(trimmed)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : questionCount
+  }
 
   async function start() {
+    const nextQuestionCount = getStartQuestionCount()
+
     setLoading(true)
     setError(null)
-    setHasAnswered(false)
-    setIsCorrect(null)
+    setHasRevealedAnswer(false)
+    setQuestionCount(nextQuestionCount)
 
     try {
       const response = await fetch("/api/notion/quiz/start", {
@@ -54,7 +58,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          questionCount,
+          questionCount: nextQuestionCount,
           sources,
         }),
       })
@@ -75,20 +79,21 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   }
 
   async function submitAnswer(nextIsCorrect: boolean) {
-    if (!currentQuestion || hasAnswered || submitting) {
+    if (!currentQuestion || submitting) {
       return
     }
 
-    setHasAnswered(true)
-    setIsCorrect(nextIsCorrect)
     setSubmitting(true)
     setError(null)
+
+    const answeredQuestion = currentQuestion
+    const sourceConfig = sources.find((source) => source.dataSourceId === answeredQuestion.dataSourceId)
 
     if (nextIsCorrect) {
       setCorrectCount((current) => current + 1)
     }
 
-    const sourceConfig = sources.find((source) => source.dataSourceId === currentQuestion.dataSourceId)
+    goNext()
 
     try {
       const response = await fetch("/api/notion/quiz/answer", {
@@ -97,7 +102,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          pageId: currentQuestion.pageId,
+          pageId: answeredQuestion.pageId,
           isCorrect: nextIsCorrect,
           mappings: sourceConfig?.mappings,
         }),
@@ -117,8 +122,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
 
   function goNext() {
     setCurrentIndex((current) => current + 1)
-    setHasAnswered(false)
-    setIsCorrect(null)
+    setHasRevealedAnswer(false)
   }
 
   return (
@@ -142,13 +146,43 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         <div className="quiz-config">
           <label className="field quiz-count-field">
             <span>一回の出題数</span>
-            <select value={questionCount} onChange={(event) => setQuestionCount(Number(event.target.value))}>
-              {[3, 5, 10, 15].map((count) => (
-                <option key={count} value={count}>
-                  {count} 問
-                </option>
-              ))}
-            </select>
+            <div className="choice-group" role="radiogroup" aria-label="一回の出題数">
+              {presetQuestionCounts.map((count) => {
+                const isSelected = questionCount === count
+                  && customQuestionCount.trim().length === 0
+
+                return (
+                  <button
+                    key={count}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    className={`choice-chip${isSelected ? " is-selected" : ""}`}
+                    onClick={() => setQuestionCount(count)}
+                  >
+                    {count} 問
+                  </button>
+                )
+              })}
+              <input
+                type="number"
+                min="1"
+                inputMode="numeric"
+                className="choice-input"
+                value={customQuestionCount}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setCustomQuestionCount(value)
+
+                  const parsed = Number(value)
+                  if (Number.isInteger(parsed) && parsed > 0) {
+                    setQuestionCount(parsed)
+                  }
+                }}
+                placeholder="自由入力"
+                aria-label="出題数を自由入力"
+              />
+            </div>
           </label>
 
           <button type="button" className="primary-button" onClick={start} disabled={loading}>
@@ -181,8 +215,16 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           </div>
 
           <div className="flashcard-actions">
-            {!hasAnswered ? (
-              <>
+            {!hasRevealedAnswer ? (
+              <button
+                type="button"
+                className="primary-button flashcard-button flashcard-reveal-button"
+                onClick={() => setHasRevealedAnswer(true)}
+              >
+                答えを見る
+              </button>
+            ) :
+              <div className="flashcard-actions answer-actions">
                 <button
                   type="button"
                   className="ghost-button flashcard-button"
@@ -199,27 +241,12 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
                 >
                   覚えていた
                 </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="primary-button flashcard-button flashcard-next-button"
-                ref={nextButtonRef}
-                onClick={goNext}
-              >
-                次の問題へ
-              </button>
-            )}
+              </div>
+            }
           </div>
 
-          {hasAnswered ? (
+          {hasRevealedAnswer ? (
             <div className="answer-panel">
-              <div className="answer-result">
-                <span className={isCorrect ? "ok-pill" : "warn-pill"}>
-                  {isCorrect ? "覚えていた" : "覚えていなかった"}
-                </span>
-              </div>
-
               <div className="answer-detail">
                 <strong>答え</strong>
                 <RichTextRenderer items={currentQuestion.correctAnswer} />
@@ -237,6 +264,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
               {currentQuestion.imageUrl ? (
                 <img src={currentQuestion.imageUrl} alt="" className="question-image" />
               ) : null}
+
             </div>
           ) : null}
         </div>
@@ -268,7 +296,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
             onClick={() => {
               setQuiz(null)
               setCurrentIndex(0)
-              setHasAnswered(false)
+              setHasRevealedAnswer(false)
               setCorrectCount(0)
             }}
           >

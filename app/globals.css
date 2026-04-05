@@ -424,11 +424,73 @@ code {
 }
 
 .quiz-config {
-  max-width: 280px;
+  max-width: 100%;
 }
 
 .quiz-count-field {
-  max-width: 180px;
+  max-width: 100%;
+}
+
+.choice-group {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.choice-chip {
+  flex: 0 0 auto;
+  appearance: none;
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.choice-chip:hover {
+  transform: translateY(-1px);
+}
+
+.choice-chip.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.choice-chip:focus-visible {
+  outline: 3px solid rgba(61, 111, 149, 0.2);
+  outline-offset: 2px;
+}
+
+.choice-input {
+  flex: 0 0 120px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.choice-input:focus {
+  outline: 2px solid rgba(61, 111, 149, 0.18);
+  border-color: var(--accent);
+}
+
+.choice-input:focus-visible {
+  outline: 3px solid rgba(61, 111, 149, 0.2);
+  outline-offset: 2px;
 }
 
 .question-card {
@@ -452,16 +514,29 @@ code {
 .flashcard-actions {
   display: grid;
   gap: 12px;
+  width: 100%;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
 }
 
 .flashcard-button {
   min-height: 56px;
+  width: 100%;
 }
 
-.flashcard-next-button {
+.flashcard-reveal-button {
   grid-column: 1 / -1;
+}
+
+.answer-actions {
+  margin-top: 4px;
+  grid-column: 1 / -1;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.answer-actions .flashcard-button {
+  width: 100%;
 }
 
 .answer-detail {
@@ -527,10 +602,17 @@ code {
 @media (max-width: 920px) {
   .workspace-grid,
   .nav-grid,
-  .flashcard-actions,
   .summary-grid,
   .ready-grid {
     grid-template-columns: 1fr;
+  }
+
+  .flashcard-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .answer-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .site-header,
@@ -566,13 +648,13 @@ code {
 
 @media (max-width: 640px) {
   .page {
-    padding: 14px 12px 88px;
+    padding: 12px 10px 84px;
   }
 
   .panel,
   .hero,
   .ankilot-card {
-    padding: 16px;
+    padding: 14px;
   }
 
   .site-nav {
@@ -594,7 +676,7 @@ code {
   }
 
   .hero {
-    padding: 18px;
+    padding: 16px;
   }
 
   .hero-label-row {
@@ -620,13 +702,67 @@ code {
   .summary-card,
   .answer-panel,
   .data-source-card {
-    padding: 14px;
+    padding: 12px;
   }
 
   .flashcard-button,
   .site-nav-link,
   .footer-tab {
-    min-height: 48px;
+    min-height: 44px;
+  }
+
+  .site-nav-link,
+  .footer-tab,
+  .ghost-button,
+  .primary-button,
+  .choice-chip {
+    padding: 8px 10px;
+  }
+
+  .quiz-panel,
+  .quiz-stage,
+  .answer-panel,
+  .question-card,
+  .quiz-config {
+    gap: 12px;
+  }
+
+  .quiz-stage-header,
+  .question-source,
+  .inline-stats,
+  .site-nav,
+  .card-actions {
+    gap: 8px;
+  }
+
+  .question-text {
+    font-size: 0.98rem;
+    line-height: 1.65;
+  }
+
+  .meta-text,
+  .help-text,
+  .status-text,
+  .card-kicker {
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  .panel-header h2,
+  .nav-card h2 {
+    font-size: 1.15rem;
+  }
+
+  .summary-card strong {
+    font-size: 1.08rem;
+  }
+
+  .choice-group {
+    gap: 8px;
+  }
+
+  .choice-input {
+    flex-basis: 96px;
   }
 
   .footer-tabs {
