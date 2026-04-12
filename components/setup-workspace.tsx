@@ -31,10 +31,6 @@ function summarizeSourceNames(sources: QuizSourceConfig[]) {
   return sources.map((source) => source.dataSourceName).join(" / ")
 }
 
-function countMappedRequirements(mapping: Partial<Record<QuizRequirementKey, string>>) {
-  return getRequiredQuizRequirements().filter((requirement) => Boolean(mapping[requirement.key])).length
-}
-
 const autoMatchNames: Record<QuizRequirementKey, string[]> = {
   question: ["question"],
   answer: ["answer"],
@@ -604,9 +600,6 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
                   <div className="card-body">
                     {item.parentTitle ? <p className="card-kicker">{item.parentTitle}</p> : null}
                     <h3>{item.name}</h3>
-                    <p className="meta-text">
-                      必須プロパティ {countMappedRequirements(propertyMappings[item.id] ?? {})}/{getRequiredQuizRequirements().length}
-                    </p>
                   </div>
                   <div className="card-actions">
                     <button type="button" className="ghost-button" onClick={() => setConfirmingResetDataSourceId(item.id)}>

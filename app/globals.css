@@ -1173,11 +1173,72 @@ code {
 @media (max-width: 768px) {
   .page {
     width: min(100%, calc(100% - 24px));
-    padding: 16px 0 92px;
+    padding: 10px 0 92px;
+  }
+
+  .site-nav-link,
+  .footer-tab,
+  .ghost-button,
+  .primary-button,
+  .choice-chip {
+    min-height: 40px;
+    padding: 7px 13px;
+    font-size: 14px;
+  }
+
+  .site-user-trigger {
+    min-height: 42px;
+    padding: 4px 10px 4px 4px;
+  }
+
+  .site-user-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .field span,
+  .help-text,
+  .meta-text,
+  .status-text,
+  .card-kicker {
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .field input,
+  .field select,
+  .choice-input {
+    min-height: 40px;
+    padding: 8px 11px;
+    font-size: 14px;
   }
 
   .site-header {
-    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0 12px;
+    margin-bottom: 12px;
+  }
+
+  .site-header::after {
+    inset: 0 -12px;
+  }
+
+  .site-brand-wrap {
+    gap: 10px;
+  }
+
+  .site-app-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
+
+  .site-logo {
+    font-size: 15px;
   }
 
   .site-nav {
@@ -1186,6 +1247,7 @@ code {
 
   .site-account-slot {
     display: flex;
+    justify-content: flex-end;
   }
 
   .hero,
@@ -1200,19 +1262,19 @@ code {
   }
 
   .hero h1 {
-    font-size: 40px;
-    line-height: 40px;
+    font-size: 34px;
+    line-height: 36px;
     max-width: 100%;
   }
 
   .compact-hero h1 {
-    font-size: 32px;
-    line-height: 36px;
+    font-size: 28px;
+    line-height: 32px;
   }
 
   .question-text {
-    font-size: 18px;
-    line-height: 28px;
+    font-size: 17px;
+    line-height: 26px;
   }
 
   .quiz-stage-shell {
@@ -1232,6 +1294,11 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .flashcard-button {
+    min-height: 48px;
+    font-size: 15px;
+  }
+
   .answer-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1245,11 +1312,15 @@ code {
   }
 
   .user-modal-panel {
+    position: relative;
     top: auto;
-    right: 12px;
-    bottom: 12px;
+    right: auto;
+    bottom: auto;
+    left: auto;
     width: calc(100vw - 24px);
-    max-height: calc(100vh - 24px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+    margin: 0 auto;
   }
 
   .picker-modal-panel {
@@ -1275,7 +1346,30 @@ code {
   }
 }
 
+@media (max-width: 768px) {
+  .user-modal {
+    inset: 0;
+    padding: calc(12px + env(safe-area-inset-top)) 12px 12px;
+    overflow: auto;
+  }
+
+  .user-modal-backdrop {
+    inset: 0;
+  }
+}
+
 @media (max-width: 640px) {
+  .workspace-actions-row {
+    gap: 8px;
+  }
+
+  .workspace-actions-row .ghost-button,
+  .workspace-actions-row .primary-button {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
   .hero,
   .panel,
   .ankilot-card,
@@ -1306,8 +1400,8 @@ code {
   .schema-header h3,
   .data-source-card h3,
   .nav-card h2 {
-    font-size: 20px;
-    line-height: 26px;
+    font-size: 18px;
+    line-height: 24px;
   }
 
   .site-logo {
@@ -1318,17 +1412,9 @@ code {
     padding: 16px;
   }
 
-  .help-text,
-  .meta-text,
-  .status-text,
-  .card-kicker {
-    font-size: 14px;
-    line-height: 20px;
-  }
-
   .summary-card strong {
-    font-size: 22px;
-    line-height: 28px;
+    font-size: 20px;
+    line-height: 26px;
   }
 
   .data-source-main,
@@ -1360,9 +1446,32 @@ code {
     display: grid;
   }
 
+  .selected-source-card {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .selected-source-card .card-body {
+    gap: 4px;
+  }
+
+  .selected-source-card h3 {
+    font-size: 16px;
+    line-height: 22px;
+  }
+
   .card-actions {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .selected-source-card .ghost-button {
+    min-height: 34px;
+    padding: 6px 4px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
   .choice-input {
