@@ -5,15 +5,18 @@
 - Keep Notion as the source of truth for authored problem content.
 - Store application-owned state in Postgres.
 - Support per-user quiz sets that combine multiple Notion data sources.
-- Persist answer history and learning metrics so quiz selection logic can evolve later.
+- Persist answer history and learning metrics required by `docs/LOGIC_IDEA.md`.
 
 ## Design Summary
 
 - Use `page_id` as the Notion-side identifier for each problem page.
 - Also store `data_source_id` for each problem so the app can filter by Notion DB without re-querying Notion.
 - Separate raw answer history from aggregate stats.
+- Treat question memory state, performance state, and session state as distinct concerns.
 - Model quiz sets as user-owned records that reference one or more Notion data sources.
 - Never store passwords or Notion tokens in plaintext.
+- Do not require cached problem text, explanation text, images, or other heavy content in Postgres for v1.
+- Support sparse content. A problem may have only the minimum authored fields the user actually uses.
 
 ## Why `page_id` Alone Is Not Enough
 
@@ -48,8 +51,9 @@ The data model has four major domains.
 ### 3. Learning history and statistics
 
 - Per-answer event history
-- Aggregate counters such as asked count and correct count
-- Future scheduling fields such as `next_due_at`
+- Aggregate counters such as answer count and correct count
+- Scheduling fields such as `next_due_at`, `stability`, and `stage`
+- Difficulty and short-term performance fields used by the scoring model
 
 ### 4. Quiz set configuration
 
@@ -131,6 +135,9 @@ Suggested columns:
 - `notion_data_source_id` UUID not null references `notion_data_sources(id)`
 - `page_id` text not null
 - `status` text
+- `category` text
+- `tags` jsonb
+- `content_cache` jsonb
 - `last_seen_at` timestamptz
 - `created_at` timestamptz not null
 - `updated_at` timestamptz not null
@@ -142,8 +149,9 @@ Suggested constraints:
 Notes:
 
 - This is the main mapping table between the app and individual Notion problem pages.
-- The first version does not need to duplicate question text, answer text, or image URLs in Postgres.
-- If later needed for performance, cached text columns can be added here or in a separate cache table.
+- The first version does not need to duplicate question text, answer text, explanation text, image URLs, or any other heavy content in Postgres.
+- `content_cache` is optional and exists only for future optimization. It may be null for all rows in v1.
+- The app must work even if users author only the minimum fields they care about, such as question and answer without explanation or images.
 
 ### `question_stats`
 
@@ -152,24 +160,33 @@ Aggregate metrics for each problem.
 Suggested columns:
 
 - `question_item_id` UUID primary key references `question_items(id)`
-- `asked_count` integer not null default 0
+- `answer_count` integer not null default 0
 - `correct_count` integer not null default 0
-- `last_asked_at` timestamptz
+- `wrong_count` integer not null default 0
+- `correct_streak` integer not null default 0
+- `wrong_streak` integer not null default 0
 - `last_answered_at` timestamptz
 - `last_correct_at` timestamptz
-- `streak_current` integer not null default 0
-- `streak_best` integer not null default 0
-- `ease_score` numeric
-- `interval_days` integer
+- `last_result` text
+- `stage` text not null default 'NEW'
+- `suspended` boolean not null default false
+- `stability` numeric not null default 0.3
+- `ease` numeric not null default 1.3
+- `difficulty` numeric not null default 1.0
+- `last_interval_seconds` integer
+- `ema_accuracy` numeric not null default 0.5
+- `avg_response_time_ms` integer
 - `next_due_at` timestamptz
-- `avg_response_ms` integer
 - `updated_at` timestamptz not null
 
 Notes:
 
-- Prefer storing `asked_count` and `correct_count` rather than a persisted `accuracy` field.
-- Accuracy can be computed as `correct_count / asked_count`.
-- This reduces the risk of stale aggregate values.
+- This table should mirror the durable per-question state assumed by `docs/LOGIC_IDEA.md`.
+- Prefer storing counts and learning-state fields rather than a persisted `accuracy` field.
+- Accuracy can be computed as `correct_count / answer_count` when needed.
+- `last_interval_seconds` should allow minute-level schedules. Do not restrict scheduling to whole days.
+- `stage` should be constrained to `NEW`, `LEARNING`, `REVIEW`, `MASTERED`, or `LAPSE`.
+- `last_result` should be constrained to values such as `correct` and `wrong`.
 
 ### `answer_events`
 
@@ -185,6 +202,10 @@ Suggested columns:
 - `answered_at` timestamptz not null
 - `is_correct` boolean not null
 - `response_ms` integer
+- `scheduled_after_questions` integer
+- `retry_enqueued` boolean not null default false
+- `stage_before` text
+- `stage_after` text
 - `answer_payload` jsonb
 
 Notes:
@@ -192,6 +213,7 @@ Notes:
 - This table is the source for future analytics and recalculation.
 - Keeping raw events makes it safe to change quiz-scoring logic later.
 - Avoid storing only aggregates with no event history.
+- `answer_payload` should be optional because some users may only submit correctness and response time.
 
 ### `quiz_sets`
 
@@ -249,11 +271,35 @@ Suggested columns:
 - `question_count` integer not null default 0
 - `correct_count` integer not null default 0
 - `mode` text
+- `recent_question_ids` jsonb
+- `last_category` text
 
 Notes:
 
-- This is useful for session-level reporting.
-- It can be added after the first release if needed.
+- This is useful not only for reporting but also for the session-local rules in `docs/LOGIC_IDEA.md`.
+- The selection logic needs access to recent history so it can avoid immediate repeats and category streaks.
+
+### `quiz_session_retries`
+
+Optional but strongly recommended queue for same-session retries.
+
+Suggested columns:
+
+- `id` UUID primary key
+- `quiz_session_id` UUID not null references `quiz_sessions(id)`
+- `question_item_id` UUID not null references `question_items(id)`
+- `available_after_position` integer not null
+- `consumed_at` timestamptz
+- `created_at` timestamptz not null
+
+Suggested constraints:
+
+- unique(`quiz_session_id`, `question_item_id`, `available_after_position`)
+
+Notes:
+
+- This table models the `3-8 questions later` retry queue from `docs/LOGIC_IDEA.md`.
+- If the implementation keeps this queue in ephemeral memory instead, that choice should be explicit in the backend design.
 
 ## Relationship Overview
 
@@ -266,7 +312,9 @@ users
   │              └─ answer_events
   ├─ quiz_sets
   │    └─ quiz_set_sources ── notion_data_sources
-  └─ quiz_sessions ── quiz_sets
+  └─ quiz_sessions
+       ├─ quiz_session_retries
+       └─ quiz_sets
 ```
 
 ## Minimal First Version
@@ -281,14 +329,15 @@ The first production-ready version can start with these tables:
 - `quiz_sets`
 - `quiz_set_sources`
 - `answer_events`
+- `quiz_sessions`
 
-`quiz_sessions` can be added later if session reporting becomes important.
+`quiz_session_retries` can be implemented either as a table or as a session-scoped cache, but one of those mechanisms is required if the app follows `docs/LOGIC_IDEA.md`.
 
 ## Operational Guidance
 
 ### Source of truth
 
-- Notion remains the source of truth for question content, answer content, explanation content, and images.
+- Notion remains the source of truth for whatever authored content the user actually has, such as question text, answer text, optional explanation text, and optional images.
 - Postgres stores app-owned state and references back to Notion.
 
 ### IDs
@@ -302,7 +351,14 @@ This keeps the app schema stable even if integration details evolve.
 
 - Write each answer into `answer_events`.
 - Update `question_stats` from the latest answer.
-- Derive accuracy from counts instead of storing a standalone percentage field.
+- Derive long-term accuracy from counts instead of storing a standalone percentage field.
+- Persist `ema_accuracy`, `stability`, `difficulty`, `stage`, and streak fields because they are part of the active scheduling model, not just reporting.
+
+### Session strategy
+
+- Track per-session recent question history so the selector can exclude recently shown questions.
+- Track retry candidates separately from long-term scheduling. A wrong answer can enqueue a same-session retry without overloading the long-term `next_due_at` model.
+- Keep session-local category history so the selector can suppress repeated categories.
 
 ### Security
 
@@ -315,9 +371,9 @@ This keeps the app schema stable even if integration details evolve.
 These choices should be finalized when the schema is implemented.
 
 1. Whether the first version supports one Notion connection per user or multiple connections.
-2. Whether problem content should be cached in Postgres for faster quiz generation.
-3. Whether `quiz_sessions` is needed in v1 or can wait.
-4. Whether spaced-repetition fields such as `ease_score`, `interval_days`, and `next_due_at` should ship in v1 or be added after answer history is stable.
+2. Whether problem content should ever be cached in Postgres for faster quiz generation. This is optional and should not be required in v1.
+3. Whether `quiz_session_retries` should be persisted in Postgres or handled by a cache/session store.
+4. Whether multiple quiz modes need different session-state retention rules.
 
 ## Recommended Next Step
 
