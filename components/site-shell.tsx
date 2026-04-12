@@ -1,23 +1,28 @@
 import Link from "next/link"
 
+import { UserMenu } from "@/components/user-menu"
+
 type SiteShellProps = {
-  current: "home" | "setup" | "quiz"
+  current?: "setup" | "quiz"
+  userEmail?: string | null
+  userDisplayName?: string | null
 }
 
 const items = [
-  { href: "/", label: "ホーム", key: "home" },
   { href: "/setup", label: "設定", key: "setup" },
   { href: "/quiz", label: "クイズ", key: "quiz" },
 ] as const
 
-export function SiteHeader({ current }: SiteShellProps) {
+export function SiteHeader({ current, userEmail, userDisplayName }: SiteShellProps) {
   return (
     <header className="site-header">
-      <div className="site-brand">
-        <Link href="/" className="site-logo">
-          ノーション暗記カード
+      <div className="site-brand-wrap">
+        <span className="site-app-icon" aria-hidden="true">
+          NQ
+        </span>
+        <Link href="/quiz" className="site-logo">
+          Notion Quiz
         </Link>
-        <p className="site-tagline">シンプルに続けられる暗記学習ワークスペース</p>
       </div>
 
       <nav className="site-nav" aria-label="全体ナビゲーション">
@@ -31,6 +36,12 @@ export function SiteHeader({ current }: SiteShellProps) {
           </Link>
         ))}
       </nav>
+
+      <div className="site-account-slot">
+        {userEmail || userDisplayName ? (
+          <UserMenu email={userEmail ?? null} displayName={userDisplayName ?? null} />
+        ) : null}
+      </div>
     </header>
   )
 }

@@ -1,4 +1,5 @@
 import { encryptString } from "@/lib/crypto"
+import { requireCurrentUser } from "@/lib/auth/user"
 import { withTransaction } from "@/lib/db/client"
 import { answerEventsRepository } from "@/lib/db/repositories/answer-events"
 import { notionConnectionsRepository } from "@/lib/db/repositories/notion-connections"
@@ -9,7 +10,6 @@ import { quizSessionCandidatesRepository } from "@/lib/db/repositories/quiz-sess
 import { quizSessionRetriesRepository } from "@/lib/db/repositories/quiz-session-retries"
 import { quizSessionsRepository } from "@/lib/db/repositories/quiz-sessions"
 import { quizSetsRepository } from "@/lib/db/repositories/quiz-sets"
-import { usersRepository } from "@/lib/db/repositories/users"
 import type { QuestionSelectionCandidate, QuizQuestionContent } from "@/lib/db/types"
 import { getNotionClient, getNotionTokenFromSession } from "@/lib/notion/client"
 import { getSessionProfile } from "@/lib/notion/api"
@@ -156,6 +156,7 @@ function selectSingleQuestion(candidates: StartSessionCandidate[], session: { re
 }
 
 async function loadPersistenceContext() {
+  const user = await requireCurrentUser()
   assertNotionClient(await getNotionClient())
 
   const token = await getNotionTokenFromSession()
@@ -171,17 +172,17 @@ async function loadPersistenceContext() {
   }
 
   return {
+    user,
     token,
     profile,
   }
 }
 
 async function persistCandidates(sources: QuizSourceConfig[]) {
-  const { token, profile } = await loadPersistenceContext()
+  const { user, token, profile } = await loadPersistenceContext()
   const { candidates, sourceCount } = await loadQuizCandidates(sources)
 
   return withTransaction(async (client) => {
-    const user = await usersRepository.upsertWorkspaceUser(client, profile.workspaceId, profile.workspaceName)
     const notionConnection = await notionConnectionsRepository.upsert(client, {
       userId: user.id,
       workspaceId: profile.workspaceId,
@@ -255,15 +256,15 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
 }
 
 async function loadPersistedCandidates(sources: QuizSourceConfig[]) {
+  const { user, token, profile } = await loadPersistenceContext()
+
   return withTransaction(async (client) => {
-    const { profile } = await loadPersistenceContext()
-    const user = await usersRepository.upsertWorkspaceUser(client, profile.workspaceId, profile.workspaceName)
     const notionConnection = await notionConnectionsRepository.upsert(client, {
       userId: user.id,
       workspaceId: profile.workspaceId,
       workspaceName: profile.workspaceName,
       workspaceIconUrl: null,
-      encryptedAccessToken: encryptString((await getNotionTokenFromSession()) as string),
+      encryptedAccessToken: encryptString(token),
     })
 
     const persistedDataSources = await Promise.all(
@@ -323,7 +324,8 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
       client,
       persisted.userId,
       `Ad hoc quiz ${new Date().toISOString()}`,
-      `Generated from ${persisted.sourceCount} selected source(s)`
+      `Generated from ${persisted.sourceCount} selected source(s)`,
+      { isTemporary: true }
     )
 
     for (const notionDataSourceId of persisted.notionDataSourceIds) {
@@ -363,6 +365,22 @@ export async function syncQuizSources(sources: QuizSourceConfig[]): Promise<Sync
     sourceCount: persisted.sourceCount,
     questionCount: persisted.persistedCandidates.length,
   }
+}
+
+export async function resetQuizSourceMetadata(dataSourceId: string) {
+  if (!isDatabaseEnabled()) {
+    throw new Error("Database persistence is not enabled")
+  }
+
+  const user = await requireCurrentUser()
+
+  return withTransaction(async (client) => {
+    const deletedQuestionCount = await questionItemsRepository.deleteForUserDataSource(client, user.id, dataSourceId)
+
+    return {
+      deletedQuestionCount,
+    }
+  })
 }
 
 export async function getNextQuizQuestion(sessionId: string) {

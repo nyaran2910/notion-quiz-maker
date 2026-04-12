@@ -118,7 +118,7 @@ The exact filenames can change, but the separation should stay:
 
 For the quiz domain, the practical split should be:
 
-- `selection.ts`: computes candidate scores and selects from the top set
+- `selection.ts`: computes candidate scores and selects probabilistically across the full candidate pool
 - `updater.ts`: updates `question_stats` after each answer
 - `session.ts`: manages recent-question exclusion, retry queue, and category suppression
 

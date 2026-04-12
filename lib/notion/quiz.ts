@@ -1,7 +1,7 @@
 import { isFullPage } from "@notionhq/client"
 
 import { getNotionClient } from "./client"
-import type { QuizRequirementKey } from "./quiz-schema"
+import { quizRequirements, type QuizRequirementKey } from "./quiz-schema"
 import type { QuizMappings, QuizQuestion, QuizRichTextItem, QuizSourceConfig } from "./quiz-types"
 
 type NotionFile = {
@@ -124,26 +124,6 @@ function getRichTextValue(property: NotionPageProperty | null): QuizRichTextItem
   return []
 }
 
-function getNumberValue(property: NotionPageProperty | null) {
-  if (!property || property.type !== "number" || typeof property.number !== "number") {
-    return 0
-  }
-
-  return property.number
-}
-
-function getSelectValue(property: NotionPageProperty | null) {
-  if (!property || property.type !== "select") {
-    return null
-  }
-
-  if (property.select && typeof property.select === "object" && "name" in property.select) {
-    return typeof property.select.name === "string" ? property.select.name : null
-  }
-
-  return null
-}
-
 function getImageUrl(property: NotionPageProperty | null): string | null {
   if (!property || property.type !== "files" || !Array.isArray(property.files)) {
     return null
@@ -223,16 +203,8 @@ function buildQuestion(candidate: QuizCandidate): QuizQuestion {
   }
 }
 
-function validateMappings(mappings: Partial<Record<QuizRequirementKey, string>>): Required<QuizMappings> {
-  const requiredKeys: QuizRequirementKey[] = [
-    "accuracy",
-    "askedCount",
-    "question",
-    "answer",
-    "explanation",
-    "image",
-    "priority",
-  ]
+function validateMappings(mappings: Partial<Record<QuizRequirementKey, string>>) {
+  const requiredKeys = quizRequirements.filter((requirement) => requirement.required).map((requirement) => requirement.key)
 
   for (const key of requiredKeys) {
     if (!mappings[key]) {
@@ -240,7 +212,7 @@ function validateMappings(mappings: Partial<Record<QuizRequirementKey, string>>)
     }
   }
 
-  return mappings as Required<QuizMappings>
+  return mappings as QuizMappings & { question: string, answer: string }
 }
 
 export async function loadCandidatesForSource(source: QuizSourceConfig) {
@@ -276,9 +248,9 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
         return null
       }
 
-      const accuracy = getNumberValue(getPropertyById(page.properties, mappings.accuracy))
-      const askedCount = getNumberValue(getPropertyById(page.properties, mappings.askedCount))
-      const priority = getSelectValue(getPropertyById(page.properties, mappings.priority))
+      const accuracy = 0
+      const askedCount = 0
+      const priority = null
 
         return {
         pageId: page.id,
@@ -288,8 +260,8 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
         question,
         answer,
         answerText,
-          explanation: getRichTextValue(getPropertyById(page.properties, mappings.explanation)),
-        imageUrl: getImageUrl(getPropertyById(page.properties, mappings.image)),
+          explanation: mappings.explanation ? getRichTextValue(getPropertyById(page.properties, mappings.explanation)) : [],
+        imageUrl: mappings.image ? getImageUrl(getPropertyById(page.properties, mappings.image)) : null,
         accuracy,
         askedCount,
         priority,
@@ -353,38 +325,10 @@ export async function recordQuizAnswer(
     throw new Error("Notion session is not connected")
   }
 
-  const mappings = validateMappings(rawMappings)
-  const page = await notion.pages.retrieve({
-    page_id: pageId,
-  })
-
-  if (!("properties" in page)) {
-    throw new Error(`Could not load page: ${pageId}`)
-  }
-
-  const accuracyProperty = getPropertyById(page.properties as Record<string, unknown>, mappings.accuracy)
-  const askedCountProperty = getPropertyById(page.properties as Record<string, unknown>, mappings.askedCount)
-  const askedCount = getNumberValue(askedCountProperty)
-  const accuracy = getNumberValue(accuracyProperty)
-  const nextAskedCount = askedCount + 1
-  const nextAccuracy = ((accuracy * askedCount) + (isCorrect ? 1 : 0)) / nextAskedCount
-
-  await notion.pages.update({
-    page_id: pageId,
-    properties: {
-      [mappings.askedCount]: {
-        type: "number",
-        number: nextAskedCount,
-      },
-      [mappings.accuracy]: {
-        type: "number",
-        number: nextAccuracy,
-      },
-    },
-  })
+  validateMappings(rawMappings)
 
   return {
-    askedCount: nextAskedCount,
-    accuracy: nextAccuracy,
+    askedCount: 0,
+    accuracy: isCorrect ? 1 : 0,
   }
 }

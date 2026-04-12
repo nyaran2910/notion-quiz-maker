@@ -13,10 +13,10 @@ export type ScoredCandidate = {
   score: number
 }
 
-function weightedRandomChoice(candidates: ScoredCandidate[], gamma: number) {
+function weightedRandomChoice(candidates: ScoredCandidate[], gamma: number, minimumWeight: number) {
   const weighted = candidates.map((entry) => ({
     ...entry,
-    weight: Math.max(entry.score, 0) ** gamma,
+    weight: Math.max(entry.score, 0) ** gamma + minimumWeight,
   }))
   const total = weighted.reduce((sum, entry) => sum + entry.weight, 0)
 
@@ -61,15 +61,13 @@ export function selectNextQuestion(candidates: QuestionSelectionCandidate[], con
       candidate,
       score: scoreCandidate(candidate, now, context.lastCategory ?? null),
     }))
-    .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score)
 
   if (scored.length === 0) {
     return null
   }
 
-  const topCandidates = scored.slice(0, tuning.topN)
-  const selected = weightedRandomChoice(topCandidates, tuning.gamma)
+  const selected = weightedRandomChoice(scored, tuning.gamma, tuning.minimumWeight)
 
   if (!selected) {
     return null
@@ -77,6 +75,6 @@ export function selectNextQuestion(candidates: QuestionSelectionCandidate[], con
 
   return {
     selected: selected.candidate,
-    scored: topCandidates,
+    scored,
   }
 }

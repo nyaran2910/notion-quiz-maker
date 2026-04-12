@@ -64,4 +64,19 @@ export const questionItemsRepository = {
 
     return result.rows[0] ? toQuestionItemRecord(result.rows[0]) : null
   },
+
+  async deleteForUserDataSource(client: PoolClient, userId: string, dataSourceId: string) {
+    const result = await execute<{ id: string }>(
+      client,
+      `delete from question_items qi
+        using notion_data_sources nds
+       where qi.notion_data_source_id = nds.id
+         and qi.user_id = $1
+         and nds.data_source_id = $2
+      returning qi.id`,
+      [userId, dataSourceId]
+    )
+
+    return result.rowCount ?? 0
+  },
 }

@@ -14,7 +14,7 @@ const DEFAULTS = {
   beta: 2,
   cooldownMinutes: 30,
   gamma: 1.2,
-  topN: 20,
+  minimumWeight: 0.02,
 } as const
 
 export function sigmoid(value: number) {

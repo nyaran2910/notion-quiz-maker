@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { RichTextRenderer } from "@/components/rich-text-renderer"
 import type { QuizQuestion, QuizSourceConfig } from "@/lib/notion/quiz-types"
@@ -32,6 +32,10 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   const [endingSession, setEndingSession] = useState(false)
   const [endedSessionId, setEndedSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const nextQuestionRequestRef = useRef<Promise<void> | null>(null)
+  const nextQuestionIndexRef = useRef<number | null>(null)
+  const stageScrollRef = useRef<HTMLDivElement | null>(null)
+  const answerPanelRef = useRef<HTMLDivElement | null>(null)
 
   const currentQuestion = quiz?.questions[currentIndex] ?? null
   const isFinished = Boolean(quiz) && currentIndex >= (quiz?.plannedQuestionCount ?? 0)
@@ -56,6 +60,109 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
 
     setQuestionShownAt(Date.now())
   }, [quiz, currentQuestion, isFinished])
+
+  useEffect(() => {
+    if (!currentQuestion || isFinished) {
+      return
+    }
+
+    if (stageScrollRef.current) {
+      stageScrollRef.current.scrollTop = 0
+    }
+  }, [currentQuestion, isFinished])
+
+  useEffect(() => {
+    if (!hasRevealedAnswer) {
+      return
+    }
+
+    const container = stageScrollRef.current
+    const answerPanel = answerPanelRef.current
+
+    if (!container || !answerPanel) {
+      return
+    }
+
+    const containerTop = container.getBoundingClientRect().top
+    const answerTop = answerPanel.getBoundingClientRect().top
+    const nextTop = container.scrollTop + (answerTop - containerTop) - 12
+
+    container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" })
+  }, [hasRevealedAnswer])
+
+  const prefetchNextQuestion = useCallback(async (sessionId: string, questionIndex: number, plannedQuestionCount: number) => {
+    const nextIndex = questionIndex + 1
+
+    if (nextIndex >= plannedQuestionCount) {
+      return
+    }
+
+    if (quiz?.questions[nextIndex]) {
+      return
+    }
+
+    if (nextQuestionIndexRef.current === nextIndex && nextQuestionRequestRef.current) {
+      await nextQuestionRequestRef.current
+      return
+    }
+
+    const request = (async () => {
+      const nextResponse = await fetch("/api/notion/quiz/next", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId,
+        }),
+      })
+      const nextPayload = await nextResponse.json()
+
+      if (!nextResponse.ok) {
+        throw new Error(nextPayload.error ?? "Failed to load next question")
+      }
+
+      if (nextPayload.question) {
+        setQuiz((currentQuiz) => {
+          if (!currentQuiz || currentQuiz.questions[nextIndex]) {
+            return currentQuiz
+          }
+
+          return {
+            ...currentQuiz,
+            questions: [...currentQuiz.questions, nextPayload.question as QuizQuestion],
+          }
+        })
+      } else {
+        setQuiz((currentQuiz) => currentQuiz ? {
+          ...currentQuiz,
+          plannedQuestionCount: Math.min(currentQuiz.plannedQuestionCount, nextIndex),
+        } : currentQuiz)
+      }
+    })()
+
+    nextQuestionIndexRef.current = nextIndex
+    nextQuestionRequestRef.current = request
+
+    try {
+      await request
+    } finally {
+      if (nextQuestionIndexRef.current === nextIndex) {
+        nextQuestionIndexRef.current = null
+        nextQuestionRequestRef.current = null
+      }
+    }
+  }, [quiz?.questions])
+
+  useEffect(() => {
+    if (!quiz?.sessionId || !currentQuestion || isFinished) {
+      return
+    }
+
+    void prefetchNextQuestion(quiz.sessionId, currentIndex, quiz.plannedQuestionCount).catch((requestError) => {
+      setError(requestError instanceof Error ? requestError.message : "Failed to load next question")
+    })
+  }, [currentIndex, currentQuestion, isFinished, prefetchNextQuestion, quiz])
 
   useEffect(() => {
     const sessionId = quiz?.sessionId ?? null
@@ -131,9 +238,11 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         throw new Error(payload.error ?? "Failed to start quiz")
       }
 
-       setQuiz(payload)
-       setCurrentIndex(0)
-       setCorrectCount(0)
+        setQuiz(payload)
+        setCurrentIndex(0)
+        setCorrectCount(0)
+        nextQuestionIndexRef.current = null
+        nextQuestionRequestRef.current = null
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to start quiz")
     } finally {
@@ -150,77 +259,55 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
     setError(null)
 
     const answeredQuestion = currentQuestion
+    const activeQuiz = quiz
+
+    if (!activeQuiz) {
+      return
+    }
+
     const sourceConfig = sources.find((source) => source.dataSourceId === answeredQuestion.dataSourceId)
     const responseTimeMs = questionShownAt ? Math.max(0, Date.now() - questionShownAt) : null
+    const shouldPrefetchNext = Boolean(activeQuiz.sessionId && currentIndex + 1 < activeQuiz.plannedQuestionCount)
 
-    try {
-      const response = await fetch("/api/notion/quiz/answer", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          pageId: answeredQuestion.pageId,
-          questionItemId: answeredQuestion.questionItemId,
-          sessionId: quiz?.sessionId,
-          isCorrect: nextIsCorrect,
-          questionPosition: currentIndex + 1,
-          responseTimeMs,
-          mappings: sourceConfig?.mappings,
-        }),
+    if (nextIsCorrect) {
+      setCorrectCount((current) => current + 1)
+    }
+
+    goNext()
+    setSubmitting(false)
+
+    if (shouldPrefetchNext) {
+      void prefetchNextQuestion(activeQuiz.sessionId as string, currentIndex, activeQuiz.plannedQuestionCount).catch((requestError) => {
+        setError(requestError instanceof Error ? requestError.message : "Failed to load next question")
       })
-      const payload = await response.json()
+    }
 
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to record answer")
-      }
-
-      if (nextIsCorrect) {
-        setCorrectCount((current) => current + 1)
-      }
-
-      if (quiz?.sessionId && currentIndex + 1 < quiz.plannedQuestionCount) {
-        const nextResponse = await fetch("/api/notion/quiz/next", {
+    void (async () => {
+      try {
+        const response = await fetch("/api/notion/quiz/answer", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            sessionId: quiz.sessionId,
+            pageId: answeredQuestion.pageId,
+            questionItemId: answeredQuestion.questionItemId,
+            sessionId: activeQuiz.sessionId,
+            isCorrect: nextIsCorrect,
+            questionPosition: currentIndex + 1,
+            responseTimeMs,
+            mappings: sourceConfig?.mappings,
           }),
         })
-        const nextPayload = await nextResponse.json()
+        const payload = await response.json()
 
-        if (!nextResponse.ok) {
-          throw new Error(nextPayload.error ?? "Failed to load next question")
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Failed to record answer")
         }
-
-        if (nextPayload.question) {
-          setQuiz((currentQuiz) => {
-            if (!currentQuiz) {
-              return currentQuiz
-            }
-
-            return {
-              ...currentQuiz,
-              questions: [...currentQuiz.questions, nextPayload.question as QuizQuestion],
-            }
-          })
-        } else {
-          setQuiz((currentQuiz) => currentQuiz ? {
-            ...currentQuiz,
-            plannedQuestionCount: currentIndex + 1,
-          } : currentQuiz)
-        }
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "Failed to record answer")
       }
-
-      goNext()
-
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to record answer")
-    } finally {
-      setSubmitting(false)
-    }
+    })()
   }
 
   function goNext() {
@@ -295,39 +382,70 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         </div>
       ) : null}
 
-      {quiz && !isFinished && currentQuestion ? (
-        <div className="quiz-stage">
-          <div className="quiz-stage-header">
-            <span className="meta-text">
-               問題 {currentIndex + 1} / {quiz.plannedQuestionCount}
-            </span>
-            <span className="meta-text">候補 {quiz.totalCandidates} / 対象 {quiz.sourceCount}</span>
-          </div>
-
-          <div className="question-card">
-            <div className="question-source">
-              <span className="list-label">出典</span>
-              <span className="meta-text">{currentQuestion.dataSourceName}</span>
+      {quiz && !isFinished ? (
+        <div className="quiz-stage-shell">
+          <div className="quiz-stage-header quiz-stage-toolbar">
+            <div className="quiz-stage-progress">
+              <span className="eyebrow">問題 {Math.min(currentIndex + 1, quiz.plannedQuestionCount)} / {quiz.plannedQuestionCount}</span>
+              <span className="meta-text">候補 {quiz.totalCandidates} / 対象 {quiz.sourceCount}</span>
             </div>
-            <div className="question-copy">
-              <RichTextRenderer items={currentQuestion.prompt} className="question-text" />
-            </div>
-
-            {currentQuestion.imageUrl ? (
-              <img src={currentQuestion.imageUrl} alt="" className="question-image" />
+            {currentQuestion ? (
+              <div className="question-source quiz-stage-source">
+                <span className="list-label">出典</span>
+                <span className="meta-text">{currentQuestion.dataSourceName}</span>
+              </div>
             ) : null}
           </div>
 
-          <div className="flashcard-actions">
+          <div ref={stageScrollRef} className="quiz-stage-scroll">
+            {currentQuestion ? (
+              <>
+                <div className="question-card quiz-question-card">
+                  <div className="question-copy">
+                    <RichTextRenderer items={currentQuestion.prompt} className="question-text" />
+                  </div>
+                </div>
+
+                {hasRevealedAnswer ? (
+                  <div ref={answerPanelRef} className="answer-panel quiz-answer-panel">
+                    <div className="answer-detail">
+                      <strong>答え</strong>
+                      <RichTextRenderer items={currentQuestion.correctAnswer} />
+                    </div>
+
+                    <div className="answer-detail">
+                      <strong>付加情報</strong>
+                      {currentQuestion.explanation.length > 0 ? (
+                        <RichTextRenderer items={currentQuestion.explanation} />
+                      ) : (
+                        <span className="meta-text">なし</span>
+                      )}
+                    </div>
+
+                    {currentQuestion.imageUrl ? (
+                      <img src={currentQuestion.imageUrl} alt="" className="question-image quiz-answer-image" />
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="quiz-stage-loading">
+                <p className="status-text">次の問題を読み込み中...</p>
+              </div>
+            )}
+          </div>
+
+          <div className="quiz-stage-actions">
             {!hasRevealedAnswer ? (
               <button
                 type="button"
                 className="primary-button flashcard-button flashcard-reveal-button"
+                disabled={!currentQuestion}
                 onClick={() => setHasRevealedAnswer(true)}
               >
                 答えを見る
               </button>
-            ) :
+            ) : (
               <div className="flashcard-actions answer-actions">
                 <button
                   type="button"
@@ -346,31 +464,8 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
                   覚えていた
                 </button>
               </div>
-            }
+            )}
           </div>
-
-          {hasRevealedAnswer ? (
-            <div className="answer-panel">
-              <div className="answer-detail">
-                <strong>答え</strong>
-                <RichTextRenderer items={currentQuestion.correctAnswer} />
-              </div>
-
-              <div className="answer-detail">
-                <strong>付加情報</strong>
-                {currentQuestion.explanation.length > 0 ? (
-                  <RichTextRenderer items={currentQuestion.explanation} />
-                ) : (
-                  <span className="meta-text">なし</span>
-                )}
-              </div>
-
-              {currentQuestion.imageUrl ? (
-                <img src={currentQuestion.imageUrl} alt="" className="question-image" />
-              ) : null}
-
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -404,6 +499,8 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
               setCorrectCount(0)
               setEndedSessionId(null)
               setEndingSession(false)
+              nextQuestionIndexRef.current = null
+              nextQuestionRequestRef.current = null
             }}
           >
             もう一度はじめる

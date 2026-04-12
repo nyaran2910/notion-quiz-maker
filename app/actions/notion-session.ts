@@ -4,6 +4,7 @@ import { Client } from "@notionhq/client"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 
+import { requireCurrentUser } from "@/lib/auth/user"
 import { NOTION_TOKEN_COOKIE, NOTION_TOKEN_COOKIE_OPTIONS } from "@/lib/notion/session"
 
 export type NotionSessionActionState = {
@@ -14,6 +15,12 @@ export async function connectNotion(
   _prevState: NotionSessionActionState,
   formData: FormData
 ): Promise<NotionSessionActionState> {
+  try {
+    await requireCurrentUser()
+  } catch {
+    return { error: "先にログインしてください。" }
+  }
+
   const token = formData.get("token")
 
   if (typeof token !== "string" || token.trim().length === 0) {
@@ -37,6 +44,7 @@ export async function connectNotion(
 }
 
 export async function disconnectNotion() {
+  await requireCurrentUser()
   const cookieStore = await cookies()
   cookieStore.delete(NOTION_TOKEN_COOKIE)
   revalidatePath("/")

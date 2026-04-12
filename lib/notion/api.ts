@@ -17,9 +17,8 @@ export type AccessibleDataSource = {
   id: string
   name: string
   databaseId: string | null
-  databaseTitle: string
+  parentTitle: string | null
   url: string
-  lastEditedTime: string
 }
 
 export type DataSourceSchema = {
@@ -32,26 +31,6 @@ function getPropertyCreationPayload(key: QuizRequirementKey) {
   const requirement = getQuizRequirement(key)
 
   switch (key) {
-    case "accuracy":
-      return {
-        [requirement.suggestedName]: {
-          name: requirement.suggestedName,
-          type: "number" as const,
-          number: {
-            format: "percent",
-          },
-        },
-      }
-    case "askedCount":
-      return {
-        [requirement.suggestedName]: {
-          name: requirement.suggestedName,
-          type: "number" as const,
-          number: {
-            format: "number",
-          },
-        },
-      }
     case "question":
       return {
         [requirement.suggestedName]: {
@@ -84,21 +63,35 @@ function getPropertyCreationPayload(key: QuizRequirementKey) {
           files: {},
         },
       }
-    case "priority":
-      return {
-        [requirement.suggestedName]: {
-          name: requirement.suggestedName,
-          type: "select" as const,
-          select: {
-            options: [
-              { name: "High", color: "red" as const },
-              { name: "Mid", color: "yellow" as const },
-              { name: "Low", color: "gray" as const },
-            ],
-          },
-        },
-      }
   }
+}
+
+type NotionTitleContainer = {
+  title?: RichTextToken[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object"
+}
+
+function extractPageTitle(page: unknown) {
+  if (!isRecord(page) || !isRecord(page.properties)) {
+    return null
+  }
+
+  for (const property of Object.values(page.properties)) {
+    if (!isRecord(property) || property.type !== "title") {
+      continue
+    }
+
+    const title = richTextToPlainText((property as NotionTitleContainer).title)
+
+    if (title) {
+      return title
+    }
+  }
+
+  return null
 }
 
 function richTextToPlainText(tokens: RichTextToken[] = []) {
@@ -142,6 +135,7 @@ export async function listAccessibleDataSources() {
 
   const results: AccessibleDataSource[] = []
   const databaseTitleMap = new Map<string, string>()
+  const parentPageTitleMap = new Map<string, string>()
 
   let startCursor: string | undefined
 
@@ -182,15 +176,26 @@ export async function listAccessibleDataSources() {
 
     for (const item of dataSources) {
       const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
-      const databaseTitle = databaseId ? (databaseTitleMap.get(databaseId) ?? "Untitled database") : "External source"
+      const parent = (item as { parent?: { type?: string, page_id?: string } }).parent
+      const parentPageId = parent?.type === "page_id" ? (parent.page_id ?? null) : null
+
+      if (parentPageId && !parentPageTitleMap.has(parentPageId)) {
+        const page = await notion.pages.retrieve({ page_id: parentPageId })
+        parentPageTitleMap.set(parentPageId, extractPageTitle(page) ?? "Untitled page")
+      }
+
+      const parentTitle = parentPageId
+        ? (parentPageTitleMap.get(parentPageId) ?? null)
+        : databaseId
+          ? (databaseTitleMap.get(databaseId) ?? null)
+          : null
 
       results.push({
         id: item.id,
         name: richTextToPlainText(item.title) || "Untitled data source",
         databaseId,
-        databaseTitle,
+        parentTitle,
         url: item.url,
-        lastEditedTime: item.last_edited_time,
       })
     }
 

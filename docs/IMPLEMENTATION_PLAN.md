@@ -170,7 +170,7 @@ Notion から問題候補を取り込み、アプリ DB と対応づける。
 
 - `dueScore`, `weakScore`, `noveltyScore`, `retryScore`, `difficultyScore`, `fatiguePenalty` の実装
 - 総合 `score` の実装
-- 上位 N 件からの重み付きランダム選択
+- 候補全体を対象にした重み付きランダム選択
 - 回答後の `question_stats` 更新
 - `stage` 遷移の実装
 - 同一セッション内の retry queue 実装
