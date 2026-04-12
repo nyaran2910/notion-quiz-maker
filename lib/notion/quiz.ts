@@ -61,9 +61,11 @@ type NotionPageProperty =
     }
 
 type QuizCandidate = {
+  questionItemId?: string
   pageId: string
   dataSourceId: string
   dataSourceName: string
+  dataSourceUrl?: string | null
   question: QuizRichTextItem[]
   answer: QuizRichTextItem[]
   answerText: string
@@ -209,7 +211,8 @@ function pickWeightedCandidates(candidates: QuizCandidate[], count: number) {
 
 function buildQuestion(candidate: QuizCandidate): QuizQuestion {
   return {
-    id: candidate.pageId,
+    id: candidate.questionItemId ?? candidate.pageId,
+    questionItemId: candidate.questionItemId ?? candidate.pageId,
     pageId: candidate.pageId,
     dataSourceId: candidate.dataSourceId,
     dataSourceName: candidate.dataSourceName,
@@ -240,7 +243,7 @@ function validateMappings(mappings: Partial<Record<QuizRequirementKey, string>>)
   return mappings as Required<QuizMappings>
 }
 
-async function loadCandidatesForSource(source: QuizSourceConfig) {
+export async function loadCandidatesForSource(source: QuizSourceConfig) {
   const notion = await getNotionClient()
 
   if (!notion) {
@@ -277,14 +280,15 @@ async function loadCandidatesForSource(source: QuizSourceConfig) {
       const askedCount = getNumberValue(getPropertyById(page.properties, mappings.askedCount))
       const priority = getSelectValue(getPropertyById(page.properties, mappings.priority))
 
-      return {
+        return {
         pageId: page.id,
         dataSourceId: source.dataSourceId,
         dataSourceName: source.dataSourceName,
+        dataSourceUrl: source.dataSourceUrl ?? null,
         question,
         answer,
         answerText,
-        explanation: getRichTextValue(getPropertyById(page.properties, mappings.explanation)),
+          explanation: getRichTextValue(getPropertyById(page.properties, mappings.explanation)),
         imageUrl: getImageUrl(getPropertyById(page.properties, mappings.image)),
         accuracy,
         askedCount,
@@ -295,10 +299,7 @@ async function loadCandidatesForSource(source: QuizSourceConfig) {
     .filter((candidate): candidate is QuizCandidate => Boolean(candidate))
 }
 
-export async function startQuiz(
-  sources: QuizSourceConfig[],
-  questionCount: number
-) {
+export async function loadQuizCandidates(sources: QuizSourceConfig[]) {
   const validatedSources = sources.filter((source) => {
     try {
       validateMappings(source.mappings)
@@ -313,7 +314,18 @@ export async function startQuiz(
   }
 
   const candidateGroups = await Promise.all(validatedSources.map((source) => loadCandidatesForSource(source)))
-  const candidates = candidateGroups.flat()
+
+  return {
+    sourceCount: validatedSources.length,
+    candidates: candidateGroups.flat(),
+  }
+}
+
+export async function startQuiz(
+  sources: QuizSourceConfig[],
+  questionCount: number
+) {
+  const { sourceCount, candidates } = await loadQuizCandidates(sources)
 
   if (candidates.length === 0) {
     throw new Error("出題できる候補がありません")
@@ -325,7 +337,7 @@ export async function startQuiz(
 
   return {
     totalCandidates: candidates.length,
-    sourceCount: validatedSources.length,
+    sourceCount,
     questions,
   }
 }

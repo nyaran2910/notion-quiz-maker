@@ -1,11 +1,10 @@
 import { jsonNoStore, verifySameOrigin } from "@/lib/http"
-import { startQuizSession } from "@/lib/quiz/service"
 import type { QuizSourceConfig } from "@/lib/notion/quiz-types"
+import { syncQuizSources } from "@/lib/quiz/service"
 
 export const dynamic = "force-dynamic"
 
-type StartQuizPayload = {
-  questionCount?: number
+type SyncPayload = {
   sources?: QuizSourceConfig[]
 }
 
@@ -15,16 +14,16 @@ export async function POST(request: Request) {
       return jsonNoStore({ error: "Forbidden origin" }, { status: 403 })
     }
 
-    const body = (await request.json()) as StartQuizPayload
+    const body = (await request.json()) as SyncPayload
 
-    if (!body.questionCount || !body.sources || body.sources.length === 0) {
-      return jsonNoStore({ error: "Missing quiz configuration" }, { status: 400 })
+    if (!body.sources || body.sources.length === 0) {
+      return jsonNoStore({ error: "Missing sync sources" }, { status: 400 })
     }
 
-    const quiz = await startQuizSession(body.sources, body.questionCount)
-    return jsonNoStore(quiz)
+    const result = await syncQuizSources(body.sources)
+    return jsonNoStore(result)
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start quiz"
+    const message = error instanceof Error ? error.message : "Failed to sync quiz sources"
     const status = message.includes("not connected") ? 401 : 500
 
     return jsonNoStore({ error: message }, { status })

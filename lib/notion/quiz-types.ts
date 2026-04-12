@@ -15,6 +15,7 @@ export type QuizRichTextItem = {
 
 export type QuizQuestion = {
   id: string
+  questionItemId: string
   pageId: string
   dataSourceId: string
   dataSourceName: string
@@ -27,5 +28,6 @@ export type QuizQuestion = {
 export type QuizSourceConfig = {
   dataSourceId: string
   dataSourceName: string
+  dataSourceUrl?: string
   mappings: QuizMappings
 }

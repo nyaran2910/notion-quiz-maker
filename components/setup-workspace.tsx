@@ -77,6 +77,8 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
   const [loadingList, setLoadingList] = useState(true)
   const [loadingSchemaId, setLoadingSchemaId] = useState<string | null>(null)
   const [creatingRequirementKey, setCreatingRequirementKey] = useState<QuizRequirementKey | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -306,6 +308,48 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
 
   const activeSchema = activeDataSourceId ? schemas[activeDataSourceId] : null
   const activeMapping = activeDataSourceId ? (propertyMappings[activeDataSourceId] ?? {}) : {}
+  const selectedSources = dataSources
+    .filter((dataSource) => selectedIds.includes(dataSource.id))
+    .map((dataSource) => ({
+      dataSourceId: dataSource.id,
+      dataSourceName: dataSource.name,
+      dataSourceUrl: dataSource.url,
+      mappings: propertyMappings[dataSource.id] ?? {},
+    }))
+  const canSync = selectedSources.length > 0
+
+  async function syncSelectedSources() {
+    if (!canSync || syncing) {
+      return
+    }
+
+    setSyncing(true)
+    setSyncMessage(null)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/notion/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sources: selectedSources,
+        }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to sync quiz sources")
+      }
+
+      setSyncMessage(`${payload.sourceCount ?? 0} 件のデータベースから ${payload.questionCount ?? 0} 問を同期しました。`)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to sync quiz sources")
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <section className="workspace-grid">
@@ -329,9 +373,20 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
         </div>
 
         <p className="help-text">クイズ対象にしたいデータベースを選びます。選択状態とマッピングはこのブラウザに保存されます。</p>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!canSync || syncing}
+            onClick={() => void syncSelectedSources()}
+          >
+            {syncing ? "同期中..." : "選択中を同期"}
+          </button>
+        </div>
 
         {loadingList ? <p className="status-text">データベース一覧を読み込み中...</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
+        {syncMessage ? <p className="status-text">{syncMessage}</p> : null}
 
         <div className="data-source-list">
           {dataSources.map((item) => {

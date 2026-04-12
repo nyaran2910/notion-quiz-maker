@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { RichTextRenderer } from "@/components/rich-text-renderer"
 import type { QuizQuestion, QuizSourceConfig } from "@/lib/notion/quiz-types"
@@ -11,6 +11,9 @@ type QuizRunnerProps = {
 }
 
 type QuizSession = {
+  sessionId: string | null
+  quizSetId: string | null
+  plannedQuestionCount: number
   totalCandidates: number
   sourceCount: number
   questions: QuizQuestion[]
@@ -23,12 +26,15 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [hasRevealedAnswer, setHasRevealedAnswer] = useState(false)
   const [correctCount, setCorrectCount] = useState(0)
+  const [questionShownAt, setQuestionShownAt] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [endingSession, setEndingSession] = useState(false)
+  const [endedSessionId, setEndedSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const currentQuestion = quiz?.questions[currentIndex] ?? null
-  const isFinished = Boolean(quiz) && currentIndex >= (quiz?.questions.length ?? 0)
+  const isFinished = Boolean(quiz) && currentIndex >= (quiz?.plannedQuestionCount ?? 0)
 
   const presetQuestionCounts = [5, 10, 20, 50, 100]
 
@@ -42,6 +48,63 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
     const parsed = Number(trimmed)
     return Number.isInteger(parsed) && parsed > 0 ? parsed : questionCount
   }
+
+  useEffect(() => {
+    if (!quiz || !currentQuestion || isFinished) {
+      return
+    }
+
+    setQuestionShownAt(Date.now())
+  }, [quiz, currentQuestion, isFinished])
+
+  useEffect(() => {
+    const sessionId = quiz?.sessionId ?? null
+
+    if (!sessionId || !isFinished || endingSession || endedSessionId === sessionId) {
+      return
+    }
+
+    let cancelled = false
+
+    async function finalizeSession() {
+      setEndingSession(true)
+
+      try {
+        const response = await fetch("/api/notion/quiz/end", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+          }),
+        })
+        const payload = await response.json()
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Failed to end quiz session")
+        }
+
+        if (!cancelled) {
+          setEndedSessionId(sessionId)
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(requestError instanceof Error ? requestError.message : "Failed to end quiz session")
+        }
+      } finally {
+        if (!cancelled) {
+          setEndingSession(false)
+        }
+      }
+    }
+
+    void finalizeSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [endedSessionId, endingSession, isFinished, quiz])
 
   async function start() {
     const nextQuestionCount = getStartQuestionCount()
@@ -68,9 +131,9 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         throw new Error(payload.error ?? "Failed to start quiz")
       }
 
-      setQuiz(payload)
-      setCurrentIndex(0)
-      setCorrectCount(0)
+       setQuiz(payload)
+       setCurrentIndex(0)
+       setCorrectCount(0)
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to start quiz")
     } finally {
@@ -88,12 +151,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
 
     const answeredQuestion = currentQuestion
     const sourceConfig = sources.find((source) => source.dataSourceId === answeredQuestion.dataSourceId)
-
-    if (nextIsCorrect) {
-      setCorrectCount((current) => current + 1)
-    }
-
-    goNext()
+    const responseTimeMs = questionShownAt ? Math.max(0, Date.now() - questionShownAt) : null
 
     try {
       const response = await fetch("/api/notion/quiz/answer", {
@@ -103,7 +161,11 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         },
         body: JSON.stringify({
           pageId: answeredQuestion.pageId,
+          questionItemId: answeredQuestion.questionItemId,
+          sessionId: quiz?.sessionId,
           isCorrect: nextIsCorrect,
+          questionPosition: currentIndex + 1,
+          responseTimeMs,
           mappings: sourceConfig?.mappings,
         }),
       })
@@ -112,6 +174,47 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to record answer")
       }
+
+      if (nextIsCorrect) {
+        setCorrectCount((current) => current + 1)
+      }
+
+      if (quiz?.sessionId && currentIndex + 1 < quiz.plannedQuestionCount) {
+        const nextResponse = await fetch("/api/notion/quiz/next", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: quiz.sessionId,
+          }),
+        })
+        const nextPayload = await nextResponse.json()
+
+        if (!nextResponse.ok) {
+          throw new Error(nextPayload.error ?? "Failed to load next question")
+        }
+
+        if (nextPayload.question) {
+          setQuiz((currentQuiz) => {
+            if (!currentQuiz) {
+              return currentQuiz
+            }
+
+            return {
+              ...currentQuiz,
+              questions: [...currentQuiz.questions, nextPayload.question as QuizQuestion],
+            }
+          })
+        } else {
+          setQuiz((currentQuiz) => currentQuiz ? {
+            ...currentQuiz,
+            plannedQuestionCount: currentIndex + 1,
+          } : currentQuiz)
+        }
+      }
+
+      goNext()
 
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to record answer")
@@ -123,6 +226,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   function goNext() {
     setCurrentIndex((current) => current + 1)
     setHasRevealedAnswer(false)
+    setQuestionShownAt(null)
   }
 
   return (
@@ -195,7 +299,7 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
         <div className="quiz-stage">
           <div className="quiz-stage-header">
             <span className="meta-text">
-              問題 {currentIndex + 1} / {quiz.questions.length}
+               問題 {currentIndex + 1} / {quiz.plannedQuestionCount}
             </span>
             <span className="meta-text">候補 {quiz.totalCandidates} / 対象 {quiz.sourceCount}</span>
           </div>
@@ -276,13 +380,13 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
             <div className="summary-card">
               <span className="eyebrow">正解数</span>
               <strong>
-                {correctCount} / {quiz.questions.length}
+                 {correctCount} / {quiz.plannedQuestionCount}
               </strong>
             </div>
             <div className="summary-card">
               <span className="eyebrow">正答率</span>
               <strong>
-                {quiz.questions.length > 0 ? Math.round((correctCount / quiz.questions.length) * 100) : 0}%
+                 {quiz.plannedQuestionCount > 0 ? Math.round((correctCount / quiz.plannedQuestionCount) * 100) : 0}%
               </strong>
             </div>
             <div className="summary-card">
@@ -298,6 +402,8 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
               setCurrentIndex(0)
               setHasRevealedAnswer(false)
               setCorrectCount(0)
+              setEndedSessionId(null)
+              setEndingSession(false)
             }}
           >
             もう一度はじめる
