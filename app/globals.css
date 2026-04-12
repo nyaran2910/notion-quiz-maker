@@ -987,7 +987,8 @@ code {
 .quiz-stage-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: min(78dvh, 920px);
+  height: min(78dvh, 920px);
+  min-height: 0;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(34, 34, 33, 0.98), rgba(24, 24, 23, 0.99));
@@ -1278,7 +1279,7 @@ code {
   }
 
   .quiz-stage-shell {
-    min-height: min(72dvh, 860px);
+    height: min(72dvh, 860px);
   }
 
   .quiz-stage-toolbar {

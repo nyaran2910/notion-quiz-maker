@@ -1,6 +1,7 @@
 import type { PoolClient } from "@/lib/db/client"
 import { execute } from "@/lib/db/client"
 import type { QuestionSelectionCandidate, QuizQuestionContent } from "@/lib/db/types"
+import type { QuizSourceConfig } from "@/lib/notion/quiz-types"
 
 type QuizSessionCandidateRow = {
   question_item_id: string
@@ -25,12 +26,14 @@ type QuizSessionCandidateRow = {
   next_due_at: Date | null
   updated_at: Date
   retry_id: string | null
+  mappings: QuizSourceConfig["mappings"] | null
 }
 
 export type QuizSessionCandidateRecord = {
   selection: QuestionSelectionCandidate
   content: QuizQuestionContent | null
   retryId: string | null
+  mappings: QuizSourceConfig["mappings"]
 }
 
 function toRecord(row: QuizSessionCandidateRow): QuizSessionCandidateRecord {
@@ -60,6 +63,7 @@ function toRecord(row: QuizSessionCandidateRow): QuizSessionCandidateRecord {
     },
     content: row.content_cache,
     retryId: row.retry_id,
+    mappings: row.mappings ?? {},
   }
 }
 
@@ -89,8 +93,9 @@ export const quizSessionCandidatesRepository = {
          qs.avg_response_time_ms,
          qs.next_due_at,
          qs.updated_at,
-         retry.id as retry_id
-       from quiz_sessions session
+         retry.id as retry_id,
+         qss.mappings
+        from quiz_sessions session
        join quiz_set_sources qss
          on qss.quiz_set_id = session.quiz_set_id
        join question_items qi
@@ -143,8 +148,9 @@ export const quizSessionCandidatesRepository = {
          qs.avg_response_time_ms,
          qs.next_due_at,
          qs.updated_at,
-         null::text as retry_id
-       from question_items qi
+         null::text as retry_id,
+         null::jsonb as mappings
+        from question_items qi
        join question_stats qs
          on qs.question_item_id = qi.id
       where qi.notion_data_source_id = any($1::uuid[])`,

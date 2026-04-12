@@ -316,6 +316,96 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
     setQuestionShownAt(null)
   }
 
+  if (quiz && !isFinished) {
+    return (
+      <section className="quiz-stage-shell">
+        <div className="quiz-stage-header quiz-stage-toolbar">
+          <div className="quiz-stage-progress">
+            <span className="eyebrow">問題 {Math.min(currentIndex + 1, quiz.plannedQuestionCount)} / {quiz.plannedQuestionCount}</span>
+            <span className="meta-text">候補 {quiz.totalCandidates} / 対象 {quiz.sourceCount}</span>
+          </div>
+          {currentQuestion ? (
+            <div className="question-source quiz-stage-source">
+              <span className="list-label">出典</span>
+              <span className="meta-text">{currentQuestion.dataSourceName}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div ref={stageScrollRef} className="quiz-stage-scroll">
+          {error ? <p className="error-text">{error}</p> : null}
+          {currentQuestion ? (
+            <>
+              <div className="question-card quiz-question-card">
+                <div className="question-copy">
+                  <RichTextRenderer items={currentQuestion.prompt} className="question-text" />
+                </div>
+              </div>
+
+              {hasRevealedAnswer ? (
+                <div ref={answerPanelRef} className="answer-panel quiz-answer-panel">
+                  <div className="answer-detail">
+                    <strong>答え</strong>
+                    <RichTextRenderer items={currentQuestion.correctAnswer} />
+                  </div>
+
+                  <div className="answer-detail">
+                    <strong>付加情報</strong>
+                    {currentQuestion.explanation.length > 0 ? (
+                      <RichTextRenderer items={currentQuestion.explanation} />
+                    ) : (
+                      <span className="meta-text">なし</span>
+                    )}
+                  </div>
+
+                  {currentQuestion.imageUrl ? (
+                    <img src={currentQuestion.imageUrl} alt="" className="question-image quiz-answer-image" />
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="quiz-stage-loading">
+              <p className="status-text">次の問題を読み込み中...</p>
+            </div>
+          )}
+        </div>
+
+        <div className="quiz-stage-actions">
+          {!hasRevealedAnswer ? (
+            <button
+              type="button"
+              className="primary-button flashcard-button flashcard-reveal-button"
+              disabled={!currentQuestion}
+              onClick={() => setHasRevealedAnswer(true)}
+            >
+              答えを見る
+            </button>
+          ) : (
+            <div className="flashcard-actions answer-actions">
+              <button
+                type="button"
+                className="ghost-button flashcard-button"
+                disabled={submitting}
+                onClick={() => submitAnswer(false)}
+              >
+                覚えていない
+              </button>
+              <button
+                type="button"
+                className="primary-button flashcard-button"
+                disabled={submitting}
+                onClick={() => submitAnswer(true)}
+              >
+                覚えていた
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="panel quiz-panel">
       <div className="panel-header">
@@ -379,93 +469,6 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
           <button type="button" className="primary-button" onClick={start} disabled={loading}>
             {loading ? "準備中..." : "開始する"}
           </button>
-        </div>
-      ) : null}
-
-      {quiz && !isFinished ? (
-        <div className="quiz-stage-shell">
-          <div className="quiz-stage-header quiz-stage-toolbar">
-            <div className="quiz-stage-progress">
-              <span className="eyebrow">問題 {Math.min(currentIndex + 1, quiz.plannedQuestionCount)} / {quiz.plannedQuestionCount}</span>
-              <span className="meta-text">候補 {quiz.totalCandidates} / 対象 {quiz.sourceCount}</span>
-            </div>
-            {currentQuestion ? (
-              <div className="question-source quiz-stage-source">
-                <span className="list-label">出典</span>
-                <span className="meta-text">{currentQuestion.dataSourceName}</span>
-              </div>
-            ) : null}
-          </div>
-
-          <div ref={stageScrollRef} className="quiz-stage-scroll">
-            {currentQuestion ? (
-              <>
-                <div className="question-card quiz-question-card">
-                  <div className="question-copy">
-                    <RichTextRenderer items={currentQuestion.prompt} className="question-text" />
-                  </div>
-                </div>
-
-                {hasRevealedAnswer ? (
-                  <div ref={answerPanelRef} className="answer-panel quiz-answer-panel">
-                    <div className="answer-detail">
-                      <strong>答え</strong>
-                      <RichTextRenderer items={currentQuestion.correctAnswer} />
-                    </div>
-
-                    <div className="answer-detail">
-                      <strong>付加情報</strong>
-                      {currentQuestion.explanation.length > 0 ? (
-                        <RichTextRenderer items={currentQuestion.explanation} />
-                      ) : (
-                        <span className="meta-text">なし</span>
-                      )}
-                    </div>
-
-                    {currentQuestion.imageUrl ? (
-                      <img src={currentQuestion.imageUrl} alt="" className="question-image quiz-answer-image" />
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="quiz-stage-loading">
-                <p className="status-text">次の問題を読み込み中...</p>
-              </div>
-            )}
-          </div>
-
-          <div className="quiz-stage-actions">
-            {!hasRevealedAnswer ? (
-              <button
-                type="button"
-                className="primary-button flashcard-button flashcard-reveal-button"
-                disabled={!currentQuestion}
-                onClick={() => setHasRevealedAnswer(true)}
-              >
-                答えを見る
-              </button>
-            ) : (
-              <div className="flashcard-actions answer-actions">
-                <button
-                  type="button"
-                  className="ghost-button flashcard-button"
-                  disabled={submitting}
-                  onClick={() => submitAnswer(false)}
-                >
-                  覚えていない
-                </button>
-                <button
-                  type="button"
-                  className="primary-button flashcard-button"
-                  disabled={submitting}
-                  onClick={() => submitAnswer(true)}
-                >
-                  覚えていた
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       ) : null}
 

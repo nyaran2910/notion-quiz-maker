@@ -13,7 +13,12 @@ import { quizSetsRepository } from "@/lib/db/repositories/quiz-sets"
 import type { QuestionSelectionCandidate, QuizQuestionContent } from "@/lib/db/types"
 import { getNotionClient, getNotionTokenFromSession } from "@/lib/notion/client"
 import { getSessionProfile } from "@/lib/notion/api"
-import { loadQuizCandidates, recordQuizAnswer as recordQuizAnswerInNotion, startQuiz as startQuizInNotion } from "@/lib/notion/quiz"
+import {
+  loadQuestionImageUrl,
+  loadQuizCandidates,
+  recordQuizAnswer as recordQuizAnswerInNotion,
+  startQuiz as startQuizInNotion,
+} from "@/lib/notion/quiz"
 import type { QuizQuestion, QuizSourceConfig } from "@/lib/notion/quiz-types"
 import { getServerEnv } from "@/lib/server-env"
 import { selectNextQuestion } from "@/lib/quiz/selection"
@@ -29,6 +34,12 @@ type StartedQuizSession = {
   questions: QuizQuestion[]
 }
 
+type PersistedSource = {
+  notionDataSourceId: string
+  dataSourceId: string
+  mappings: QuizSourceConfig["mappings"]
+}
+
 type SyncedQuizSourcesResult = {
   sourceCount: number
   questionCount: number
@@ -38,6 +49,7 @@ type StartSessionCandidate = {
   selection: QuestionSelectionCandidate
   question: QuizQuestion
   retryId?: string | null
+  mappings?: QuizSourceConfig["mappings"]
 }
 
 type RecordAnswerInput = {
@@ -178,6 +190,17 @@ async function loadPersistenceContext() {
   }
 }
 
+async function refreshQuestionImage(question: QuizQuestion, mappings: QuizSourceConfig["mappings"]) {
+  if (!mappings.image) {
+    return question
+  }
+
+  return {
+    ...question,
+    imageUrl: await loadQuestionImageUrl(question.pageId, mappings.image),
+  }
+}
+
 async function persistCandidates(sources: QuizSourceConfig[]) {
   const { user, token, profile } = await loadPersistenceContext()
   const { candidates, sourceCount } = await loadQuizCandidates(sources)
@@ -250,7 +273,21 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
       userId: user.id,
       sourceCount,
       persistedCandidates,
-      notionDataSourceIds: [...byDataSource.values()].map((dataSource) => dataSource.id),
+      persistedSources: sources
+        .map((source) => {
+          const dataSource = byDataSource.get(source.dataSourceId)
+
+          if (!dataSource) {
+            return null
+          }
+
+          return {
+            notionDataSourceId: dataSource.id,
+            dataSourceId: source.dataSourceId,
+            mappings: source.mappings,
+          } satisfies PersistedSource
+        })
+        .filter((source): source is PersistedSource => Boolean(source)),
     }
   })
 }
@@ -284,7 +321,11 @@ async function loadPersistedCandidates(sources: QuizSourceConfig[]) {
     return {
       userId: user.id,
       sourceCount: persistedDataSources.length,
-      notionDataSourceIds: persistedDataSources.map((dataSource) => dataSource.id),
+      persistedSources: persistedDataSources.map((dataSource, index) => ({
+        notionDataSourceId: dataSource.id,
+        dataSourceId: dataSource.dataSourceId,
+        mappings: sources[index]?.mappings ?? {},
+      })),
       persistedCandidates: persistedRows
         .filter((row) => hasUsableContent(row.content))
         .map((row) => ({
@@ -328,9 +369,14 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
       { isTemporary: true }
     )
 
-    for (const notionDataSourceId of persisted.notionDataSourceIds) {
-      await quizSetsRepository.addSource(client, quizSetId, notionDataSourceId)
-    }
+    await quizSetsRepository.replaceSources(
+      client,
+      quizSetId,
+      persisted.persistedSources.map((source) => ({
+        notionDataSourceId: source.notionDataSourceId,
+        mappings: source.mappings,
+      }))
+    )
 
     const sessionId = await quizSetsRepository.createSession(client, {
       userId: persisted.userId,
@@ -338,13 +384,20 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
       mode: "flashcard",
     })
 
+    const sourceMappings = new Map(persisted.persistedSources.map((source) => [source.dataSourceId, source.mappings]))
+    const selectedQuestions = await Promise.all(
+      selectQuestions(persisted.persistedCandidates, 1).map((question) =>
+        refreshQuestionImage(question, sourceMappings.get(question.dataSourceId) ?? {})
+      )
+    )
+
     return {
       sessionId,
       quizSetId,
       plannedQuestionCount: selectedQuestionCount,
       totalCandidates: persisted.persistedCandidates.length,
       sourceCount: persisted.sourceCount,
-      questions: selectQuestions(persisted.persistedCandidates, 1),
+      questions: selectedQuestions,
     }
   })
 }
@@ -402,6 +455,7 @@ export async function getNextQuizQuestion(sessionId: string) {
         selection: candidate.selection,
         question: toQuizQuestion(candidate.selection.questionItemId, candidate.content as QuizQuestionContent),
         retryId: candidate.retryId,
+        mappings: candidate.mappings,
       }))
 
     const selected = selectSingleQuestion(hydrated, session)
@@ -414,7 +468,7 @@ export async function getNextQuizQuestion(sessionId: string) {
       await quizSessionRetriesRepository.consume(client, selected.retryId, new Date())
     }
 
-    return selected.question
+    return refreshQuestionImage(selected.question, selected.mappings ?? {})
   })
 }
 

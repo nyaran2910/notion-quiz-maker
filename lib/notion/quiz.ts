@@ -271,6 +271,22 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
     .filter((candidate): candidate is QuizCandidate => Boolean(candidate))
 }
 
+export async function loadQuestionImageUrl(pageId: string, imagePropertyId: string) {
+  const notion = await getNotionClient()
+
+  if (!notion) {
+    throw new Error("Notion session is not connected")
+  }
+
+  const page = await notion.pages.retrieve({ page_id: pageId })
+
+  if (!isFullPage(page)) {
+    return null
+  }
+
+  return getImageUrl(getPropertyById(page.properties, imagePropertyId))
+}
+
 export async function loadQuizCandidates(sources: QuizSourceConfig[]) {
   const validatedSources = sources.filter((source) => {
     try {
