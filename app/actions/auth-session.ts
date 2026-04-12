@@ -6,10 +6,12 @@ import { redirect } from "next/navigation"
 
 import { APP_SESSION_COOKIE, APP_SESSION_COOKIE_OPTIONS, APP_SESSION_MAX_AGE_SECONDS } from "@/lib/auth/session"
 import { hashPassword, verifyPassword } from "@/lib/auth/password"
+import { decryptString } from "@/lib/crypto"
 import { withTransaction } from "@/lib/db/client"
 import { authSessionsRepository } from "@/lib/db/repositories/auth-sessions"
+import { notionConnectionsRepository } from "@/lib/db/repositories/notion-connections"
 import { usersRepository } from "@/lib/db/repositories/users"
-import { NOTION_TOKEN_COOKIE } from "@/lib/notion/session"
+import { NOTION_TOKEN_COOKIE, NOTION_TOKEN_COOKIE_OPTIONS } from "@/lib/notion/session"
 
 export type AuthActionState = {
   error: string | null
@@ -37,6 +39,18 @@ async function startUserSession(userId: string) {
   })
 
   cookieStore.set(APP_SESSION_COOKIE, session.id, APP_SESSION_COOKIE_OPTIONS)
+
+  const notionConnection = await withTransaction(async (client) => notionConnectionsRepository.findLatestForUser(client, userId))
+
+  if (notionConnection?.encryptedAccessToken) {
+    cookieStore.set(
+      NOTION_TOKEN_COOKIE,
+      decryptString(notionConnection.encryptedAccessToken),
+      NOTION_TOKEN_COOKIE_OPTIONS
+    )
+  } else {
+    cookieStore.delete(NOTION_TOKEN_COOKIE)
+  }
 }
 
 function revalidateAll() {

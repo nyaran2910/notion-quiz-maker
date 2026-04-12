@@ -14,7 +14,7 @@ This app already uses `pg` directly, so no Supabase SDK is required for the curr
 Apply migrations:
 
 ```bash
-npm run db:migrate
+pnpm db:migrate
 ```
 
 Example local Postgres URL:
@@ -33,7 +33,7 @@ Recommended release flow with Supabase:
 
 1. Create a Supabase project.
 2. Copy the Postgres connection string into `DATABASE_URL`.
-3. Run `npm run db:migrate` against that database.
+3. Run `pnpm db:migrate` against that database.
 4. Set the same `DATABASE_URL` and `NOTION_TOKEN_ENCRYPTION_KEY` in your deployment environment.
 5. Deploy the app.
 
@@ -46,13 +46,7 @@ Notes:
 First, run the development server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
 pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

@@ -5,6 +5,9 @@ import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 
 import { requireCurrentUser } from "@/lib/auth/user"
+import { encryptString } from "@/lib/crypto"
+import { withTransaction } from "@/lib/db/client"
+import { notionConnectionsRepository } from "@/lib/db/repositories/notion-connections"
 import { NOTION_TOKEN_COOKIE, NOTION_TOKEN_COOKIE_OPTIONS } from "@/lib/notion/session"
 
 export type NotionSessionActionState = {
@@ -15,8 +18,10 @@ export async function connectNotion(
   _prevState: NotionSessionActionState,
   formData: FormData
 ): Promise<NotionSessionActionState> {
+  let userId: string
+
   try {
-    await requireCurrentUser()
+    userId = (await requireCurrentUser()).id
   } catch {
     return { error: "先にログインしてください。" }
   }
@@ -29,7 +34,17 @@ export async function connectNotion(
 
   try {
     const notion = new Client({ auth: token.trim() })
-    await notion.users.me({})
+    const me = await notion.users.me({})
+
+    await withTransaction(async (client) => {
+      await notionConnectionsRepository.upsert(client, {
+        userId,
+        workspaceId: me.id,
+        workspaceName: me.name ?? "Connected integration",
+        workspaceIconUrl: null,
+        encryptedAccessToken: encryptString(token.trim()),
+      })
+    })
 
     const cookieStore = await cookies()
     cookieStore.set(NOTION_TOKEN_COOKIE, token.trim(), NOTION_TOKEN_COOKIE_OPTIONS)
@@ -44,7 +59,10 @@ export async function connectNotion(
 }
 
 export async function disconnectNotion() {
-  await requireCurrentUser()
+  const user = await requireCurrentUser()
+  await withTransaction(async (client) => {
+    await notionConnectionsRepository.deleteByUserId(client, user.id)
+  })
   const cookieStore = await cookies()
   cookieStore.delete(NOTION_TOKEN_COOKIE)
   revalidatePath("/")

@@ -68,7 +68,7 @@ npx vercel inspect <deployment-url-or-id> --logs
 
 ## Operational notes
 
-- Local `npm run build` succeeds and should be used as the first check before pushing.
+- Local `pnpm build` succeeds and should be used as the first check before pushing.
 - `.env.local` is ignored by Git. Do not commit secrets there.
 - The current app stores the user-provided Notion token in an HttpOnly cookie, so this deployment does not depend on Vercel environment variables for the basic flow.
 - If Vercel project settings still show `Other`, keep `vercel.json` in the repo. The repo-level config is what makes the build work.

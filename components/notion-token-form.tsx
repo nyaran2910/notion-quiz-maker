@@ -22,23 +22,25 @@ export function NotionTokenForm() {
 
       <p className="help-text">Notion と接続するための内部インテグレーションキーを登録します。</p>
 
-      <label className="field">
-        <span>API キー</span>
-        <input
-          type="password"
-          name="token"
-          placeholder="secret_xxx or ntn_xxx"
-          autoComplete="off"
-          spellCheck={false}
-          required
-        />
-      </label>
+      <div className="auth-form-grid">
+        <label className="field">
+          <span>API キー</span>
+          <input
+            type="password"
+            name="token"
+            placeholder="secret_xxx or ntn_xxx"
+            autoComplete="off"
+            spellCheck={false}
+            required
+          />
+        </label>
 
-      {state.error ? <p className="error-text">{state.error}</p> : null}
+        {state.error ? <p className="error-text">{state.error}</p> : null}
 
-      <button type="submit" className="primary-button" disabled={isPending}>
-        {isPending ? "更新中..." : "保存"}
-      </button>
+        <button type="submit" className="primary-button" disabled={isPending}>
+          {isPending ? "更新中..." : "更新"}
+        </button>
+      </div>
     </form>
   )
 }

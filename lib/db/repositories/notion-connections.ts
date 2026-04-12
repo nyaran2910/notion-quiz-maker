@@ -5,12 +5,14 @@ type NotionConnectionRow = {
   id: string
   user_id: string
   workspace_id: string
+  encrypted_access_token?: Buffer
 }
 
 export type NotionConnectionRecord = {
   id: string
   userId: string
   workspaceId: string
+  encryptedAccessToken?: Buffer
 }
 
 function toNotionConnectionRecord(row: NotionConnectionRow): NotionConnectionRecord {
@@ -18,6 +20,7 @@ function toNotionConnectionRecord(row: NotionConnectionRow): NotionConnectionRec
     id: row.id,
     userId: row.user_id,
     workspaceId: row.workspace_id,
+    encryptedAccessToken: row.encrypted_access_token,
   }
 }
 
@@ -54,5 +57,23 @@ export const notionConnectionsRepository = {
     )
 
     return toNotionConnectionRecord(result.rows[0])
+  },
+
+  async findLatestForUser(client: PoolClient, userId: string) {
+    const result = await execute<NotionConnectionRow>(
+      client,
+      `select id, user_id, workspace_id, encrypted_access_token
+         from notion_connections
+        where user_id = $1
+        order by updated_at desc, created_at desc
+        limit 1`,
+      [userId]
+    )
+
+    return result.rows[0] ? toNotionConnectionRecord(result.rows[0]) : null
+  },
+
+  async deleteByUserId(client: PoolClient, userId: string) {
+    await execute(client, "delete from notion_connections where user_id = $1", [userId])
   },
 }
