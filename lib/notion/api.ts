@@ -7,6 +7,17 @@ type RichTextToken = {
   plain_text?: string
 }
 
+type ParentReference = {
+  type?: string
+  page_id?: string
+  block_id?: string
+}
+
+type DatabaseMetadata = {
+  title: string
+  parent: ParentReference | null
+}
+
 type DataSourceProperty = {
   id: string
   name: string
@@ -98,6 +109,84 @@ function richTextToPlainText(tokens: RichTextToken[] = []) {
   return tokens.map((token) => token.plain_text ?? "").join("").trim()
 }
 
+function getParentReference(value: unknown): ParentReference | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    type: typeof value.type === "string" ? value.type : undefined,
+    page_id: typeof value.page_id === "string" ? value.page_id : undefined,
+    block_id: typeof value.block_id === "string" ? value.block_id : undefined,
+  }
+}
+
+async function getPageTitle(
+  notion: NonNullable<Awaited<ReturnType<typeof getNotionClient>>>,
+  pageId: string,
+  parentPageTitleMap: Map<string, string>,
+) {
+  if (!parentPageTitleMap.has(pageId)) {
+    const page = await notion.pages.retrieve({ page_id: pageId })
+    parentPageTitleMap.set(pageId, extractPageTitle(page) ?? "Untitled page")
+  }
+
+  return parentPageTitleMap.get(pageId) ?? null
+}
+
+async function getPageIdFromBlock(
+  notion: NonNullable<Awaited<ReturnType<typeof getNotionClient>>>,
+  blockId: string,
+  blockPageIdMap: Map<string, string | null>,
+): Promise<string | null> {
+  if (blockPageIdMap.has(blockId)) {
+    return blockPageIdMap.get(blockId) ?? null
+  }
+
+  const block = await notion.blocks.retrieve({ block_id: blockId })
+  const parent = getParentReference(isRecord(block) && "parent" in block ? block.parent : null)
+
+  let pageId: string | null = null
+
+  if (parent?.type === "page_id") {
+    pageId = parent.page_id ?? null
+  } else if (parent?.type === "block_id" && parent.block_id) {
+    pageId = await getPageIdFromBlock(notion, parent.block_id, blockPageIdMap)
+  }
+
+  blockPageIdMap.set(blockId, pageId)
+
+  return pageId
+}
+
+async function getParentTitleFromDatabase(
+  notion: NonNullable<Awaited<ReturnType<typeof getNotionClient>>>,
+  databaseId: string,
+  databaseMetadataMap: Map<string, DatabaseMetadata>,
+  parentPageTitleMap: Map<string, string>,
+  blockPageIdMap: Map<string, string | null>,
+) {
+  const metadata = databaseMetadataMap.get(databaseId)
+
+  if (!metadata) {
+    return null
+  }
+
+  if (metadata.parent?.type === "page_id" && metadata.parent.page_id) {
+    return getPageTitle(notion, metadata.parent.page_id, parentPageTitleMap)
+  }
+
+  if (metadata.parent?.type === "block_id" && metadata.parent.block_id) {
+    const pageId = await getPageIdFromBlock(notion, metadata.parent.block_id, blockPageIdMap)
+
+    if (pageId) {
+      return getPageTitle(notion, pageId, parentPageTitleMap)
+    }
+  }
+
+  return metadata.title
+}
+
 function getPropertyType(type: string) {
   switch (type) {
     case "title":
@@ -134,8 +223,9 @@ export async function listAccessibleDataSources() {
   }
 
   const results: AccessibleDataSource[] = []
-  const databaseTitleMap = new Map<string, string>()
+  const databaseMetadataMap = new Map<string, DatabaseMetadata>()
   const parentPageTitleMap = new Map<string, string>()
+  const blockPageIdMap = new Map<string, string | null>()
 
   let startCursor: string | undefined
 
@@ -154,43 +244,42 @@ export async function listAccessibleDataSources() {
     })
 
     const dataSources = response.results.filter(isFullDataSource)
-    const missingDatabaseIds = dataSources.reduce<string[]>((accumulator, item) => {
-      const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
+      const missingDatabaseIds = dataSources.reduce<string[]>((accumulator, item) => {
+        const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
 
-      if (databaseId && !databaseTitleMap.has(databaseId)) {
-        accumulator.push(databaseId)
-      }
+        if (databaseId && !databaseMetadataMap.has(databaseId)) {
+          accumulator.push(databaseId)
+        }
 
       return accumulator
     }, [])
 
-    for (const databaseId of missingDatabaseIds) {
-      const database = await notion.databases.retrieve({
-        database_id: databaseId,
-      })
+      for (const databaseId of missingDatabaseIds) {
+        const database = await notion.databases.retrieve({
+          database_id: databaseId,
+        })
 
-      if ("title" in database) {
-        databaseTitleMap.set(databaseId, richTextToPlainText(database.title) || "Untitled database")
-      }
-    }
-
-    for (const item of dataSources) {
-      const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
-      const parent = (item as { parent?: { type?: string, page_id?: string } }).parent
-      const parentPageId = parent?.type === "page_id" ? (parent.page_id ?? null) : null
-
-      if (parentPageId && !parentPageTitleMap.has(parentPageId)) {
-        const page = await notion.pages.retrieve({ page_id: parentPageId })
-        parentPageTitleMap.set(parentPageId, extractPageTitle(page) ?? "Untitled page")
+        if ("title" in database) {
+          databaseMetadataMap.set(databaseId, {
+            title: richTextToPlainText(database.title) || "Untitled database",
+            parent: getParentReference(database.parent),
+          })
+        }
       }
 
-      const parentTitle = parentPageId
-        ? (parentPageTitleMap.get(parentPageId) ?? null)
-        : databaseId
-          ? (databaseTitleMap.get(databaseId) ?? null)
+      for (const item of dataSources) {
+        const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
+        const parentTitle = databaseId
+          ? await getParentTitleFromDatabase(
+              notion,
+              databaseId,
+              databaseMetadataMap,
+              parentPageTitleMap,
+              blockPageIdMap,
+            )
           : null
 
-      results.push({
+        results.push({
         id: item.id,
         name: richTextToPlainText(item.title) || "Untitled data source",
         databaseId,
