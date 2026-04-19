@@ -42,11 +42,13 @@ export const questionItemsRepository = {
       client,
       `insert into question_items (user_id, notion_data_source_id, page_id, category, content_cache)
        values ($1, $2, $3, $4, $5)
-       on conflict (notion_data_source_id, page_id) do update
-         set category = excluded.category,
+       on conflict (user_id, page_id) do update
+         set notion_data_source_id = excluded.notion_data_source_id,
+             category = excluded.category,
              content_cache = excluded.content_cache,
+             archived_at = null,
              updated_at = now()
-       returning id, user_id, notion_data_source_id, page_id, category, content_cache`,
+        returning id, user_id, notion_data_source_id, page_id, category, content_cache`,
       [input.userId, input.notionDataSourceId, input.pageId, input.category, input.contentCache]
     )
 
@@ -79,4 +81,22 @@ export const questionItemsRepository = {
 
     return result.rowCount ?? 0
   },
+
+   async deleteMissingForDataSource(client: PoolClient, input: {
+     userId: string
+     notionDataSourceId: string
+     pageIds: string[]
+   }) {
+     const result = await execute<{ id: string }>(
+       client,
+       `delete from question_items
+         where user_id = $1
+           and notion_data_source_id = $2
+           and not (page_id = any($3::text[]))
+       returning id`,
+       [input.userId, input.notionDataSourceId, input.pageIds]
+     )
+
+     return result.rowCount ?? 0
+   },
 }

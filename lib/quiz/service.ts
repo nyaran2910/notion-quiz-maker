@@ -116,10 +116,6 @@ function toQuizQuestion(questionItemId: string, content: QuizQuestionContent): Q
   }
 }
 
-function hasUsableContent(content: QuizQuestionContent | null) {
-  return Boolean(content && Array.isArray(content.prompt) && content.prompt.length > 0 && Array.isArray(content.correctAnswer) && content.correctAnswer.length > 0)
-}
-
 function selectQuestions(candidates: StartSessionCandidate[], questionCount: number) {
   const selected: QuizQuestion[] = []
   const remaining = [...candidates]
@@ -203,7 +199,7 @@ async function refreshQuestionImage(question: QuizQuestion, mappings: QuizSource
 
 async function persistCandidates(sources: QuizSourceConfig[]) {
   const { user, token, profile } = await loadPersistenceContext()
-  const { candidates, sourceCount } = await loadQuizCandidates(sources)
+  const { validatedSources, candidates, sourceCount } = await loadQuizCandidates(sources)
 
   return withTransaction(async (client) => {
     const notionConnection = await notionConnectionsRepository.upsert(client, {
@@ -215,6 +211,7 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
     })
 
     const byDataSource = new Map<string, Awaited<ReturnType<typeof notionDataSourcesRepository.upsert>>>()
+    const pageIdsByDataSource = new Map<string, Set<string>>()
     const persistedCandidates: StartSessionCandidate[] = []
 
     for (const source of sources) {
@@ -226,6 +223,7 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
       })
 
       byDataSource.set(source.dataSourceId, dataSource)
+      pageIdsByDataSource.set(source.dataSourceId, new Set())
     }
 
     for (const candidate of candidates) {
@@ -234,6 +232,8 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
       if (!dataSource) {
         continue
       }
+
+      pageIdsByDataSource.get(candidate.dataSourceId)?.add(candidate.pageId)
 
       const question = buildQuizQuestion("", {
         pageId: candidate.pageId,
@@ -269,6 +269,20 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
       })
     }
 
+    for (const source of validatedSources) {
+      const dataSource = byDataSource.get(source.dataSourceId)
+
+      if (!dataSource) {
+        continue
+      }
+
+      await questionItemsRepository.deleteMissingForDataSource(client, {
+        userId: user.id,
+        notionDataSourceId: dataSource.id,
+        pageIds: [...(pageIdsByDataSource.get(source.dataSourceId) ?? new Set<string>())],
+      })
+    }
+
     return {
       userId: user.id,
       sourceCount,
@@ -292,50 +306,6 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
   })
 }
 
-async function loadPersistedCandidates(sources: QuizSourceConfig[]) {
-  const { user, token, profile } = await loadPersistenceContext()
-
-  return withTransaction(async (client) => {
-    const notionConnection = await notionConnectionsRepository.upsert(client, {
-      userId: user.id,
-      workspaceId: profile.workspaceId,
-      workspaceName: profile.workspaceName,
-      workspaceIconUrl: null,
-      encryptedAccessToken: encryptString(token),
-    })
-
-    const persistedDataSources = await Promise.all(
-      sources.map((source) => notionDataSourcesRepository.upsert(client, {
-        notionConnectionId: notionConnection.id,
-        dataSourceId: source.dataSourceId,
-        name: source.dataSourceName,
-        url: source.dataSourceUrl ?? null,
-      }))
-    )
-
-    const persistedRows = await quizSessionCandidatesRepository.listForDataSourceIds(
-      client,
-      persistedDataSources.map((dataSource) => dataSource.id)
-    )
-
-    return {
-      userId: user.id,
-      sourceCount: persistedDataSources.length,
-      persistedSources: persistedDataSources.map((dataSource, index) => ({
-        notionDataSourceId: dataSource.id,
-        dataSourceId: dataSource.dataSourceId,
-        mappings: sources[index]?.mappings ?? {},
-      })),
-      persistedCandidates: persistedRows
-        .filter((row) => hasUsableContent(row.content))
-        .map((row) => ({
-          selection: row.selection,
-          question: toQuizQuestion(row.selection.questionItemId, row.content as QuizQuestionContent),
-        })),
-    }
-  })
-}
-
 export async function startQuizSession(sources: QuizSourceConfig[], questionCount: number): Promise<StartedQuizSession> {
   if (!isDatabaseEnabled()) {
     const fallbackQuiz = await startQuizInNotion(sources, questionCount)
@@ -348,11 +318,7 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
     }
   }
 
-  let persisted = await loadPersistedCandidates(sources)
-
-  if (persisted.persistedCandidates.length === 0) {
-    persisted = await persistCandidates(sources)
-  }
+  const persisted = await persistCandidates(sources)
 
   if (persisted.persistedCandidates.length === 0) {
     throw new Error("出題できる候補がありません")

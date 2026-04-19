@@ -304,6 +304,7 @@ export async function loadQuizCandidates(sources: QuizSourceConfig[]) {
   const candidateGroups = await Promise.all(validatedSources.map((source) => loadCandidatesForSource(source)))
 
   return {
+    validatedSources,
     sourceCount: validatedSources.length,
     candidates: candidateGroups.flat(),
   }
