@@ -14,7 +14,7 @@ import type { QuestionSelectionCandidate, QuizQuestionContent } from "@/lib/db/t
 import { getNotionClient, getNotionTokenFromSession } from "@/lib/notion/client"
 import { getSessionProfile } from "@/lib/notion/api"
 import {
-  loadQuestionImageUrl,
+  loadQuestionImageUrls,
   loadQuizCandidates,
   recordQuizAnswer as recordQuizAnswerInNotion,
   startQuiz as startQuizInNotion,
@@ -79,7 +79,7 @@ function buildContentCacheFromCandidate(candidate: {
   question: QuizQuestion["prompt"]
   answer: QuizQuestion["correctAnswer"]
   explanation: QuizQuestion["explanation"]
-  imageUrl: string | null
+  imageUrls: string[]
   dataSourceId: string
   dataSourceName: string
 }) {
@@ -88,10 +88,18 @@ function buildContentCacheFromCandidate(candidate: {
     prompt: candidate.question,
     correctAnswer: candidate.answer,
     explanation: candidate.explanation,
-    imageUrl: candidate.imageUrl,
+    imageUrls: candidate.imageUrls,
     dataSourceId: candidate.dataSourceId,
     dataSourceName: candidate.dataSourceName,
   }
+}
+
+function getContentImageUrls(content: QuizQuestionContent) {
+  if (Array.isArray(content.imageUrls)) {
+    return content.imageUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
+  }
+
+  return typeof content.imageUrl === "string" && content.imageUrl.length > 0 ? [content.imageUrl] : []
 }
 
 function buildQuizQuestion(questionItemId: string, question: Omit<QuizQuestion, "questionItemId" | "id">): QuizQuestion {
@@ -112,7 +120,7 @@ function toQuizQuestion(questionItemId: string, content: QuizQuestionContent): Q
     prompt: content.prompt as QuizQuestion["prompt"],
     correctAnswer: content.correctAnswer as QuizQuestion["correctAnswer"],
     explanation: content.explanation as QuizQuestion["explanation"],
-    imageUrl: content.imageUrl,
+    imageUrls: getContentImageUrls(content),
   }
 }
 
@@ -193,7 +201,7 @@ async function refreshQuestionImage(question: QuizQuestion, mappings: QuizSource
 
   return {
     ...question,
-    imageUrl: await loadQuestionImageUrl(question.pageId, mappings.image),
+    imageUrls: await loadQuestionImageUrls(question.pageId, mappings.image),
   }
 }
 
@@ -242,7 +250,7 @@ async function persistCandidates(sources: QuizSourceConfig[]) {
         prompt: candidate.question,
         correctAnswer: candidate.answer,
         explanation: candidate.explanation,
-        imageUrl: candidate.imageUrl,
+        imageUrls: candidate.imageUrls,
       })
 
       const questionItem = await questionItemsRepository.upsert(client, {

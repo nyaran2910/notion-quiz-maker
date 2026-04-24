@@ -70,7 +70,7 @@ type QuizCandidate = {
   answer: QuizRichTextItem[]
   answerText: string
   explanation: QuizRichTextItem[]
-  imageUrl: string | null
+  imageUrls: string[]
   askedCount: number
   accuracy: number
   priority: string | null
@@ -124,18 +124,14 @@ function getRichTextValue(property: NotionPageProperty | null): QuizRichTextItem
   return []
 }
 
-function getImageUrl(property: NotionPageProperty | null): string | null {
+function getImageUrls(property: NotionPageProperty | null): string[] {
   if (!property || property.type !== "files" || !Array.isArray(property.files)) {
-    return null
+    return []
   }
 
-  const file = property.files[0]
-
-  if (!file) {
-    return null
-  }
-
-  return file.type === "file" ? (file.file?.url ?? null) : (file.external?.url ?? null)
+  return property.files
+    .map((file) => file.type === "file" ? file.file?.url : file.external?.url)
+    .filter((url): url is string => typeof url === "string" && url.length > 0)
 }
 
 function getPriorityWeight(priority: string | null) {
@@ -199,7 +195,7 @@ function buildQuestion(candidate: QuizCandidate): QuizQuestion {
     prompt: candidate.question,
     correctAnswer: candidate.answer,
     explanation: candidate.explanation,
-    imageUrl: candidate.imageUrl,
+    imageUrls: candidate.imageUrls,
   }
 }
 
@@ -261,7 +257,7 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
         answer,
         answerText,
           explanation: mappings.explanation ? getRichTextValue(getPropertyById(page.properties, mappings.explanation)) : [],
-        imageUrl: mappings.image ? getImageUrl(getPropertyById(page.properties, mappings.image)) : null,
+        imageUrls: mappings.image ? getImageUrls(getPropertyById(page.properties, mappings.image)) : [],
         accuracy,
         askedCount,
         priority,
@@ -271,7 +267,7 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
     .filter((candidate): candidate is QuizCandidate => Boolean(candidate))
 }
 
-export async function loadQuestionImageUrl(pageId: string, imagePropertyId: string) {
+export async function loadQuestionImageUrls(pageId: string, imagePropertyId: string) {
   const notion = await getNotionClient()
 
   if (!notion) {
@@ -281,10 +277,10 @@ export async function loadQuestionImageUrl(pageId: string, imagePropertyId: stri
   const page = await notion.pages.retrieve({ page_id: pageId })
 
   if (!isFullPage(page)) {
-    return null
+    return []
   }
 
-  return getImageUrl(getPropertyById(page.properties, imagePropertyId))
+  return getImageUrls(getPropertyById(page.properties, imagePropertyId))
 }
 
 export async function loadQuizCandidates(sources: QuizSourceConfig[]) {

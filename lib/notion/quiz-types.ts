@@ -22,7 +22,7 @@ export type QuizQuestion = {
   prompt: QuizRichTextItem[]
   correctAnswer: QuizRichTextItem[]
   explanation: QuizRichTextItem[]
-  imageUrl: string | null
+  imageUrls: string[]
 }
 
 export type QuizSourceConfig = {

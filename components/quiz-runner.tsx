@@ -358,8 +358,12 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
                     )}
                   </div>
 
-                  {currentQuestion.imageUrl ? (
-                    <img src={currentQuestion.imageUrl} alt="" className="question-image quiz-answer-image" />
+                  {currentQuestion.imageUrls.length > 0 ? (
+                    <div className="quiz-answer-images">
+                      {currentQuestion.imageUrls.map((imageUrl) => (
+                        <img key={imageUrl} src={imageUrl} alt="" className="question-image quiz-answer-image" />
+                      ))}
+                    </div>
                   ) : null}
                 </div>
               ) : null}

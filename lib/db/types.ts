@@ -38,7 +38,8 @@ export type QuizQuestionContent = {
   prompt: unknown[]
   correctAnswer: unknown[]
   explanation: unknown[]
-  imageUrl: string | null
+  imageUrls?: string[]
+  imageUrl?: string | null
   dataSourceId: string
   dataSourceName: string
 }
