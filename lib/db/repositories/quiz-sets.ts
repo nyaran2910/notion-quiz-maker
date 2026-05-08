@@ -108,14 +108,20 @@ export const quizSetsRepository = {
   async replaceSources(client: PoolClient, quizSetId: string, sources: Array<{ notionDataSourceId: string, mappings: QuizSourceConfig["mappings"] }>) {
     await execute(client, "delete from quiz_set_sources where quiz_set_id = $1", [quizSetId])
 
-    for (const source of sources) {
-      await execute(
-        client,
-        `insert into quiz_set_sources (quiz_set_id, notion_data_source_id, mappings)
-         values ($1, $2, $3::jsonb)`,
-        [quizSetId, source.notionDataSourceId, JSON.stringify(source.mappings)]
-      )
+    if (sources.length === 0) {
+      return
     }
+
+    await execute(
+      client,
+      `insert into quiz_set_sources (quiz_set_id, notion_data_source_id, mappings)
+       select $1, notion_data_source_id, mappings
+         from jsonb_to_recordset($2::jsonb) as input(notion_data_source_id uuid, mappings jsonb)`,
+      [quizSetId, JSON.stringify(sources.map((source) => ({
+        notion_data_source_id: source.notionDataSourceId,
+        mappings: source.mappings,
+      })))]
+    )
   },
 
   async update(client: PoolClient, userId: string, quizSetId: string, input: { name: string, description: string | null }) {

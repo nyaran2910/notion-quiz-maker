@@ -1,0 +1,12 @@
+alter table public._app_migrations enable row level security;
+alter table public.users enable row level security;
+alter table public.notion_connections enable row level security;
+alter table public.notion_data_sources enable row level security;
+alter table public.question_items enable row level security;
+alter table public.question_stats enable row level security;
+alter table public.quiz_sets enable row level security;
+alter table public.quiz_set_sources enable row level security;
+alter table public.quiz_sessions enable row level security;
+alter table public.answer_events enable row level security;
+alter table public.quiz_session_retries enable row level security;
+alter table public.auth_sessions enable row level security;

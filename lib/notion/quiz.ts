@@ -211,7 +211,7 @@ function validateMappings(mappings: Partial<Record<QuizRequirementKey, string>>)
   return mappings as QuizMappings & { question: string, answer: string }
 }
 
-export async function loadCandidatesForSource(source: QuizSourceConfig) {
+export async function loadCandidatesForSource(source: QuizSourceConfig, options: { editedAfter?: Date | null } = {}) {
   const notion = await getNotionClient()
 
   if (!notion) {
@@ -223,12 +223,23 @@ export async function loadCandidatesForSource(source: QuizSourceConfig) {
   let startCursor: string | undefined
 
   do {
-    const response = await notion.dataSources.query({
+    const query: Parameters<typeof notion.dataSources.query>[0] = {
       data_source_id: source.dataSourceId,
       result_type: "page",
       page_size: 100,
       start_cursor: startCursor,
-    })
+    }
+
+    if (options.editedAfter) {
+      query.filter = {
+        timestamp: "last_edited_time",
+        last_edited_time: {
+          after: options.editedAfter.toISOString(),
+        },
+      }
+    }
+
+    const response = await notion.dataSources.query(query)
 
     pages.push(...response.results.filter(isFullPage))
     startCursor = response.has_more ? (response.next_cursor ?? undefined) : undefined
@@ -283,7 +294,7 @@ export async function loadQuestionImageUrls(pageId: string, imagePropertyId: str
   return getImageUrls(getPropertyById(page.properties, imagePropertyId))
 }
 
-export async function loadQuizCandidates(sources: QuizSourceConfig[]) {
+export async function loadQuizCandidates(sources: QuizSourceConfig[], options: { editedAfterByDataSourceId?: Map<string, Date | null> } = {}) {
   const validatedSources = sources.filter((source) => {
     try {
       validateMappings(source.mappings)
@@ -297,7 +308,9 @@ export async function loadQuizCandidates(sources: QuizSourceConfig[]) {
     throw new Error("No fully configured data source was provided")
   }
 
-  const candidateGroups = await Promise.all(validatedSources.map((source) => loadCandidatesForSource(source)))
+  const candidateGroups = await Promise.all(validatedSources.map((source) => loadCandidatesForSource(source, {
+    editedAfter: options.editedAfterByDataSourceId?.get(source.dataSourceId) ?? null,
+  })))
 
   return {
     validatedSources,

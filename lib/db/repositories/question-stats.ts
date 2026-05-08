@@ -75,6 +75,30 @@ export const questionStatsRepository = {
     return toQuestionStatsRecord(result.rows[0])
   },
 
+  async createMissingForQuestionItems(client: PoolClient, questionItemIds: string[]) {
+    if (questionItemIds.length === 0) {
+      return []
+    }
+
+    await execute(
+      client,
+      `insert into question_stats (question_item_id)
+       select unnest($1::uuid[])
+       on conflict (question_item_id) do nothing`,
+      [questionItemIds]
+    )
+
+    const result = await execute<QuestionStatsRow>(
+      client,
+      `select *
+         from question_stats
+        where question_item_id = any($1::uuid[])`,
+      [questionItemIds]
+    )
+
+    return result.rows.map(toQuestionStatsRecord)
+  },
+
   async save(client: PoolClient, stats: QuestionStatsRecord) {
     const result = await execute<QuestionStatsRow>(
       client,

@@ -70,8 +70,7 @@ export function QuizWorkspace() {
     <section className="workspace-stack">
       <section className="panel">
         <div className="panel-header">
-          <span className="eyebrow">準備完了</span>
-          <h2>クイズ集を選ぶ</h2>
+          <h2>クイズ集の選択</h2>
         </div>
 
         {loading ? <p className="status-text">クイズ集を読み込み中...</p> : null}
@@ -105,7 +104,6 @@ export function QuizWorkspace() {
       {selectedQuizSet ? (
         <section className="panel">
           <div className="panel-header">
-            <span className="eyebrow">選択中</span>
             <h2>{selectedQuizSet.name}</h2>
           </div>
 

@@ -413,24 +413,15 @@ export function QuizRunner({ sources }: QuizRunnerProps) {
   return (
     <section className="panel quiz-panel">
       <div className="panel-header">
-        <span className="eyebrow">出題</span>
         <h2>暗記カード</h2>
       </div>
 
-      <div className="inline-stats">
-        <span className="stat-chip">対象 {sources.length}</span>
-        <span className="stat-chip">暗記カード</span>
-      </div>
 
-      <p className="help-text">
-        {sources.length} 個のデータベースを束ねて、覚えていたかどうかを自己判定する暗記カードを生成します。
-      </p>
       {error ? <p className="error-text">{error}</p> : null}
 
       {!quiz ? (
         <div className="quiz-config">
           <label className="field quiz-count-field">
-            <span>一回の出題数</span>
             <div className="choice-group" role="radiogroup" aria-label="一回の出題数">
               {presetQuestionCounts.map((count) => {
                 const isSelected = questionCount === count

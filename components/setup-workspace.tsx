@@ -569,11 +569,8 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
       <section className="workspace-stack">
         <div className="panel workspace-overview-panel">
           <div className="panel-header">
-            <span className="eyebrow">接続中</span>
-            <h2>{workspaceName}</h2>
+            <h2>Notionデータベースの選択</h2>
           </div>
-
-          <p className="help-text">クイズ対象にしたいデータベースを選び、必要なプロパティを割り当ててから同期します。</p>
 
           <div className="workspace-actions-row">
             <button type="button" className="ghost-button" onClick={() => setIsPickerOpen(true)}>
@@ -622,8 +619,7 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
 
         <div className="panel workspace-quizset-panel">
         <div className="panel-header">
-          <span className="eyebrow">クイズ集</span>
-          <h2>保存済みクイズ集</h2>
+          <h2>クイズ集</h2>
         </div>
 
         <div className="auth-form-grid">
@@ -673,9 +669,7 @@ export function SetupWorkspace({ workspaceName }: SetupWorkspaceProps) {
           <div className="picker-modal-panel">
             <div className="picker-modal-header">
               <div>
-                <p className="eyebrow">データベース選択</p>
-                <h3>クイズ対象に使うデータベース</h3>
-                <p className="meta-text">一覧はスクロール可能です。数が増えても画面全体は伸びません。</p>
+                <h3>クイズデータベースを選択</h3>
               </div>
               <button type="button" className="ghost-button" onClick={() => setIsPickerOpen(false)}>
                 閉じる

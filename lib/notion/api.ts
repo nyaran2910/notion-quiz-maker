@@ -11,6 +11,7 @@ type ParentReference = {
   type?: string
   page_id?: string
   block_id?: string
+  database_id?: string
 }
 
 type DatabaseMetadata = {
@@ -23,6 +24,8 @@ type DataSourceProperty = {
   name: string
   type: string
 }
+
+const NOTION_METADATA_TIMEOUT_MS = 5000
 
 export type AccessibleDataSource = {
   id: string
@@ -109,6 +112,23 @@ function richTextToPlainText(tokens: RichTextToken[] = []) {
   return tokens.map((token) => token.plain_text ?? "").join("").trim()
 }
 
+async function withMetadataTimeout<T>(promise: Promise<T>) {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), NOTION_METADATA_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+  }
+}
+
 function getParentReference(value: unknown): ParentReference | null {
   if (!isRecord(value)) {
     return null
@@ -118,7 +138,28 @@ function getParentReference(value: unknown): ParentReference | null {
     type: typeof value.type === "string" ? value.type : undefined,
     page_id: typeof value.page_id === "string" ? value.page_id : undefined,
     block_id: typeof value.block_id === "string" ? value.block_id : undefined,
+    database_id: typeof value.database_id === "string" ? value.database_id : undefined,
   }
+}
+
+function getDatabaseIdFromDataSource(dataSource: unknown) {
+  if (!isRecord(dataSource)) {
+    return null
+  }
+
+  const databaseParent = getParentReference(dataSource.database_parent)
+
+  if (databaseParent?.type === "database_id" && databaseParent.database_id) {
+    return databaseParent.database_id
+  }
+
+  const parent = getParentReference(dataSource.parent)
+
+  if (parent?.type === "database_id" && parent.database_id) {
+    return parent.database_id
+  }
+
+  return null
 }
 
 async function getPageTitle(
@@ -127,36 +168,15 @@ async function getPageTitle(
   parentPageTitleMap: Map<string, string>,
 ) {
   if (!parentPageTitleMap.has(pageId)) {
-    const page = await notion.pages.retrieve({ page_id: pageId })
-    parentPageTitleMap.set(pageId, extractPageTitle(page) ?? "Untitled page")
+    try {
+      const page = await withMetadataTimeout(notion.pages.retrieve({ page_id: pageId }))
+      parentPageTitleMap.set(pageId, extractPageTitle(page) ?? "Untitled page")
+    } catch {
+      parentPageTitleMap.set(pageId, "Untitled page")
+    }
   }
 
   return parentPageTitleMap.get(pageId) ?? null
-}
-
-async function getPageIdFromBlock(
-  notion: NonNullable<Awaited<ReturnType<typeof getNotionClient>>>,
-  blockId: string,
-  blockPageIdMap: Map<string, string | null>,
-): Promise<string | null> {
-  if (blockPageIdMap.has(blockId)) {
-    return blockPageIdMap.get(blockId) ?? null
-  }
-
-  const block = await notion.blocks.retrieve({ block_id: blockId })
-  const parent = getParentReference(isRecord(block) && "parent" in block ? block.parent : null)
-
-  let pageId: string | null = null
-
-  if (parent?.type === "page_id") {
-    pageId = parent.page_id ?? null
-  } else if (parent?.type === "block_id" && parent.block_id) {
-    pageId = await getPageIdFromBlock(notion, parent.block_id, blockPageIdMap)
-  }
-
-  blockPageIdMap.set(blockId, pageId)
-
-  return pageId
 }
 
 async function getParentTitleFromDatabase(
@@ -164,7 +184,6 @@ async function getParentTitleFromDatabase(
   databaseId: string,
   databaseMetadataMap: Map<string, DatabaseMetadata>,
   parentPageTitleMap: Map<string, string>,
-  blockPageIdMap: Map<string, string | null>,
 ) {
   const metadata = databaseMetadataMap.get(databaseId)
 
@@ -176,15 +195,7 @@ async function getParentTitleFromDatabase(
     return getPageTitle(notion, metadata.parent.page_id, parentPageTitleMap)
   }
 
-  if (metadata.parent?.type === "block_id" && metadata.parent.block_id) {
-    const pageId = await getPageIdFromBlock(notion, metadata.parent.block_id, blockPageIdMap)
-
-    if (pageId) {
-      return getPageTitle(notion, pageId, parentPageTitleMap)
-    }
-  }
-
-  return metadata.title
+  return null
 }
 
 function getPropertyType(type: string) {
@@ -225,7 +236,6 @@ export async function listAccessibleDataSources() {
   const results: AccessibleDataSource[] = []
   const databaseMetadataMap = new Map<string, DatabaseMetadata>()
   const parentPageTitleMap = new Map<string, string>()
-  const blockPageIdMap = new Map<string, string | null>()
 
   let startCursor: string | undefined
 
@@ -244,49 +254,63 @@ export async function listAccessibleDataSources() {
     })
 
     const dataSources = response.results.filter(isFullDataSource)
-      const missingDatabaseIds = dataSources.reduce<string[]>((accumulator, item) => {
-        const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
+    const missingDatabaseIds = dataSources.reduce<string[]>((accumulator, item) => {
+      const databaseId = getDatabaseIdFromDataSource(item)
 
-        if (databaseId && !databaseMetadataMap.has(databaseId)) {
-          accumulator.push(databaseId)
-        }
+      if (databaseId && !databaseMetadataMap.has(databaseId) && !accumulator.includes(databaseId)) {
+        accumulator.push(databaseId)
+      }
 
       return accumulator
     }, [])
 
-      for (const databaseId of missingDatabaseIds) {
-        const database = await notion.databases.retrieve({
-          database_id: databaseId,
-        })
+    await Promise.all(
+      missingDatabaseIds.map(async (databaseId) => {
+        try {
+          const database = await withMetadataTimeout(
+            notion.databases.retrieve({
+              database_id: databaseId,
+            })
+          )
 
-        if ("title" in database) {
+          if (database && "title" in database) {
+            databaseMetadataMap.set(databaseId, {
+              title: richTextToPlainText(database.title) || "Untitled database",
+              parent: getParentReference(database.parent),
+            })
+          }
+        } catch {
           databaseMetadataMap.set(databaseId, {
-            title: richTextToPlainText(database.title) || "Untitled database",
-            parent: getParentReference(database.parent),
+            title: "Untitled database",
+            parent: null,
           })
         }
-      }
+      })
+    )
 
-      for (const item of dataSources) {
-        const databaseId = item.database_parent.type === "database_id" ? item.database_parent.database_id : null
+    const pageResults = await Promise.all(
+      dataSources.map(async (item) => {
+        const databaseId = getDatabaseIdFromDataSource(item)
         const parentTitle = databaseId
           ? await getParentTitleFromDatabase(
               notion,
               databaseId,
               databaseMetadataMap,
               parentPageTitleMap,
-              blockPageIdMap,
             )
           : null
 
-        results.push({
-        id: item.id,
-        name: richTextToPlainText(item.title) || "Untitled data source",
-        databaseId,
-        parentTitle,
-        url: item.url,
+        return {
+          id: item.id,
+          name: richTextToPlainText(item.title) || "Untitled data source",
+          databaseId,
+          parentTitle,
+          url: item.url,
+        }
       })
-    }
+    )
+
+    results.push(...pageResults)
 
     startCursor = response.has_more ? (response.next_cursor ?? undefined) : undefined
   } while (startCursor)
