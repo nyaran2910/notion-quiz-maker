@@ -407,6 +407,8 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
     }
   }
 
+  await persistCandidates(sources)
+
   const persisted = await loadCachedStartContext(sources)
 
   if (persisted.candidates.length === 0) {
