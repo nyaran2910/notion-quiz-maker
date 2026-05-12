@@ -134,6 +134,20 @@ function getImageUrls(property: NotionPageProperty | null): string[] {
     .filter((url): url is string => typeof url === "string" && url.length > 0)
 }
 
+export function getQuestionImageProxyUrl(pageId: string, imagePropertyId: string, imageIndex: number) {
+  const params = new URLSearchParams({
+    pageId,
+    propertyId: imagePropertyId,
+    index: String(imageIndex),
+  })
+
+  return `/api/notion/images?${params.toString()}`
+}
+
+export function getQuestionImageProxyUrls(pageId: string, imagePropertyId: string, imageCount: number) {
+  return Array.from({ length: imageCount }, (_value, index) => getQuestionImageProxyUrl(pageId, imagePropertyId, index))
+}
+
 function getPriorityWeight(priority: string | null) {
   const normalized = priority?.trim().toUpperCase()
 
@@ -292,6 +306,11 @@ export async function loadQuestionImageUrls(pageId: string, imagePropertyId: str
   }
 
   return getImageUrls(getPropertyById(page.properties, imagePropertyId))
+}
+
+export async function loadQuestionImageUrl(pageId: string, imagePropertyId: string, imageIndex: number) {
+  const imageUrls = await loadQuestionImageUrls(pageId, imagePropertyId)
+  return imageUrls[imageIndex] ?? null
 }
 
 export async function loadQuizCandidates(sources: QuizSourceConfig[], options: { editedAfterByDataSourceId?: Map<string, Date | null> } = {}) {

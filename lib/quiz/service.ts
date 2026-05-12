@@ -14,6 +14,8 @@ import type { QuestionSelectionCandidate, QuizQuestionContent } from "@/lib/db/t
 import { getNotionClient, getNotionTokenFromSession } from "@/lib/notion/client"
 import { getSessionProfile } from "@/lib/notion/api"
 import {
+  getQuestionImageProxyUrls,
+  loadQuestionImageUrls,
   loadQuizCandidates,
   recordQuizAnswer as recordQuizAnswerInNotion,
   startQuiz as startQuizInNotion,
@@ -121,6 +123,30 @@ function toQuizQuestion(questionItemId: string, content: QuizQuestionContent): Q
     explanation: content.explanation as QuizQuestion["explanation"],
     imageUrls: getContentImageUrls(content),
   }
+}
+
+async function refreshQuestionImageUrls(question: QuizQuestion, mappings?: QuizSourceConfig["mappings"]): Promise<QuizQuestion> {
+  if (!mappings?.image) {
+    return question
+  }
+
+  try {
+    const imageUrls = await loadQuestionImageUrls(question.pageId, mappings.image)
+    return {
+      ...question,
+      imageUrls: getQuestionImageProxyUrls(question.pageId, mappings.image, imageUrls.length),
+    }
+  } catch {
+    return question
+  }
+}
+
+async function refreshQuestionsImageUrls(questions: QuizQuestion[], sources: QuizSourceConfig[]) {
+  const mappingsByDataSourceId = new Map(sources.map((source) => [source.dataSourceId, source.mappings]))
+
+  return Promise.all(
+    questions.map((question) => refreshQuestionImageUrls(question, mappingsByDataSourceId.get(question.dataSourceId)))
+  )
 }
 
 function selectQuestions(candidates: StartSessionCandidate[], questionCount: number) {
@@ -398,12 +424,14 @@ async function loadCachedStartContext(sources: QuizSourceConfig[]) {
 export async function startQuizSession(sources: QuizSourceConfig[], questionCount: number): Promise<StartedQuizSession> {
   if (!isDatabaseEnabled()) {
     const fallbackQuiz = await startQuizInNotion(sources, questionCount)
+    const questions = await refreshQuestionsImageUrls(fallbackQuiz.questions, sources)
 
     return {
       sessionId: null,
       quizSetId: null,
-      plannedQuestionCount: fallbackQuiz.questions.length,
+      plannedQuestionCount: questions.length,
       ...fallbackQuiz,
+      questions,
     }
   }
 
@@ -441,7 +469,12 @@ export async function startQuizSession(sources: QuizSourceConfig[], questionCoun
       mode: "flashcard",
     })
 
-    const selectedQuestions = selectQuestions(persisted.candidates, 1)
+    const selectedQuestions = await Promise.all(
+      selectQuestions(persisted.candidates, 1).map((question) => {
+        const source = persisted.candidates.find((candidate) => candidate.question.questionItemId === question.questionItemId)
+        return refreshQuestionImageUrls(question, source?.mappings)
+      })
+    )
 
     return {
       sessionId,
@@ -520,7 +553,7 @@ export async function getNextQuizQuestion(sessionId: string) {
       await quizSessionRetriesRepository.consume(client, selected.retryId, new Date())
     }
 
-    return selected.question
+    return refreshQuestionImageUrls(selected.question, selected.mappings)
   })
 }
 

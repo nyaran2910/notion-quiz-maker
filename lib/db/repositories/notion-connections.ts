@@ -5,6 +5,7 @@ type NotionConnectionRow = {
   id: string
   user_id: string
   workspace_id: string
+  workspace_name?: string | null
   encrypted_access_token?: Buffer
 }
 
@@ -12,6 +13,7 @@ export type NotionConnectionRecord = {
   id: string
   userId: string
   workspaceId: string
+  workspaceName: string | null
   encryptedAccessToken?: Buffer
 }
 
@@ -20,6 +22,7 @@ function toNotionConnectionRecord(row: NotionConnectionRow): NotionConnectionRec
     id: row.id,
     userId: row.user_id,
     workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name ?? null,
     encryptedAccessToken: row.encrypted_access_token,
   }
 }
@@ -46,7 +49,7 @@ export const notionConnectionsRepository = {
              workspace_icon_url = excluded.workspace_icon_url,
              encrypted_access_token = excluded.encrypted_access_token,
              updated_at = now()
-       returning id, user_id, workspace_id`,
+       returning id, user_id, workspace_id, workspace_name`,
       [
         input.userId,
         input.workspaceId,
@@ -62,7 +65,7 @@ export const notionConnectionsRepository = {
   async findLatestForUser(client: PoolClient, userId: string) {
     const result = await execute<NotionConnectionRow>(
       client,
-      `select id, user_id, workspace_id, encrypted_access_token
+      `select id, user_id, workspace_id, workspace_name, encrypted_access_token
          from notion_connections
         where user_id = $1
         order by updated_at desc, created_at desc
