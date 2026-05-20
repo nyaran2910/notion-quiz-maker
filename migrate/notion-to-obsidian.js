@@ -1,7 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
 import { Client, LogLevel } from "@notionhq/client";
-import { v2 as cloudinary } from "cloudinary";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 
@@ -11,12 +10,8 @@ const {
   NOTION_TOKEN,
   NOTION_DATABASE_ID,
   NOTION_DATA_SOURCE_ID,
-  CLOUDINARY_CLOUD_NAME,
-  CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET,
   DATABASE_URLS_FILE = "./notion-database-urls.txt",
   IMAGE_FETCH_TIMEOUT_MS = "30000",
-  CLOUDINARY_UPLOAD_TIMEOUT_MS = "45000",
   IMAGE_UPLOAD_RETRIES = "3",
   OUTPUT_DIR = "./obsidian-export",
 } = process.env;
@@ -25,20 +20,10 @@ if (!NOTION_TOKEN) {
   throw new Error("NOTION_TOKEN が必要です");
 }
 
-if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-  throw new Error("Cloudinary の環境変数が不足しています");
-}
-
 const notion = new Client({
   auth: NOTION_TOKEN,
   logLevel: LogLevel.ERROR,
   timeoutMs: 30000,
-});
-
-cloudinary.config({
-  cloud_name: CLOUDINARY_CLOUD_NAME,
-  api_key: CLOUDINARY_API_KEY,
-  api_secret: CLOUDINARY_API_SECRET,
 });
 
 const PROPERTY_ORDER = [
@@ -49,11 +34,9 @@ const PROPERTY_ORDER = [
 ];
 
 const imageFetchTimeoutMs = Number(IMAGE_FETCH_TIMEOUT_MS);
-const cloudinaryUploadTimeoutMs = Number(CLOUDINARY_UPLOAD_TIMEOUT_MS);
 const imageUploadRetries = Math.trunc(Number(IMAGE_UPLOAD_RETRIES));
 
 validatePositiveNumber("IMAGE_FETCH_TIMEOUT_MS", imageFetchTimeoutMs);
-validatePositiveNumber("CLOUDINARY_UPLOAD_TIMEOUT_MS", cloudinaryUploadTimeoutMs);
 validatePositiveNumber("IMAGE_UPLOAD_RETRIES", imageUploadRetries);
 
 let resolvedDatabaseReference = "";
@@ -66,10 +49,6 @@ function sanitizeFileName(name) {
     .slice(0, 120) || "Untitled";
 }
 
-function escapeMarkdownHeading(text) {
-  return String(text ?? "").replace(/\n+/g, " ").trim();
-}
-
 function markdownToFileNameText(markdown) {
   return String(markdown ?? "")
     .replace(/\$/g, "")
@@ -77,7 +56,7 @@ function markdownToFileNameText(markdown) {
     .trim();
 }
 
-function sanitizeCloudinaryPublicId(value) {
+function sanitizeAssetFileBaseName(value) {
   return String(value || "image")
     .replace(/[^A-Za-z0-9_-]+/g, "-")
     .replace(/-+/g, "-")
@@ -97,6 +76,34 @@ function sleep(ms) {
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getImageExtension(imageUrl, contentType) {
+  const type = String(contentType ?? "").split(";")[0].trim().toLowerCase();
+  const byContentType = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+    "image/avif": "avif",
+  };
+
+  if (byContentType[type]) return byContentType[type];
+
+  try {
+    const url = new URL(imageUrl);
+    const ext = path.extname(url.pathname).replace(".", "").toLowerCase();
+
+    if (ext) return ext;
+  } catch {
+    const ext = path.extname(imageUrl).replace(".", "").toLowerCase();
+
+    if (ext) return ext;
+  }
+
+  return "jpg";
 }
 
 async function withRetries(action, retries, label) {
@@ -526,15 +533,15 @@ async function getPropertyValue(page, propertyName) {
     .join(", ");
 }
 
-async function uploadImageUrlToCloudinary(imageUrl, publicIdBase) {
+async function saveImageUrlToAssets(imageUrl, assetsDir, assetBaseName) {
   return withRetries(
-    () => uploadImageUrlToCloudinaryOnce(imageUrl, publicIdBase),
+    () => saveImageUrlToAssetsOnce(imageUrl, assetsDir, assetBaseName),
     imageUploadRetries,
-    `画像アップロード失敗: ${imageUrl}`
+    `画像保存失敗: ${imageUrl}`
   );
 }
 
-async function uploadImageUrlToCloudinaryOnce(imageUrl, publicIdBase) {
+async function saveImageUrlToAssetsOnce(imageUrl, assetsDir, assetBaseName) {
   const controller = new AbortController();
 
   const response = await withTimeout(
@@ -557,53 +564,16 @@ async function uploadImageUrlToCloudinaryOnce(imageUrl, publicIdBase) {
     () => controller.abort()
   );
   const buffer = Buffer.from(arrayBuffer);
+  const extension = getImageExtension(
+    imageUrl,
+    response.headers.get("content-type")
+  );
+  const assetFileName = `${assetBaseName}.${extension}`;
+  const assetPath = path.join(assetsDir, assetFileName);
 
-  return uploadBufferToCloudinary(buffer, publicIdBase);
-}
+  await fs.writeFile(assetPath, buffer);
 
-async function uploadBufferToCloudinary(buffer, publicIdBase) {
-  return new Promise((resolve, reject) => {
-    let completed = false;
-    let timeoutId;
-    const timeoutMessage =
-      `Cloudinaryアップロード: ${publicIdBase} が ` +
-      `${cloudinaryUploadTimeoutMs}ms でタイムアウトしました`;
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder: "notion-to-obsidian",
-        public_id: publicIdBase,
-        resource_type: "image",
-        overwrite: true,
-      },
-      (error, result) => {
-        if (completed) return;
-
-        completed = true;
-        clearTimeout(timeoutId);
-
-        if (error) reject(error);
-        else resolve(result.secure_url);
-      }
-    );
-
-    uploadStream.on("error", (error) => {
-      if (completed) return;
-
-      completed = true;
-      clearTimeout(timeoutId);
-      reject(error);
-    });
-
-    timeoutId = setTimeout(() => {
-      if (completed) return;
-
-      completed = true;
-      uploadStream.destroy(new Error(timeoutMessage));
-      reject(new Error(timeoutMessage));
-    }, cloudinaryUploadTimeoutMs);
-
-    uploadStream.end(buffer);
-  });
+  return path.posix.join("assets", assetFileName);
 }
 
 async function getAllPropertyValues(page) {
@@ -623,12 +593,12 @@ async function getAllPropertyValues(page) {
   return result;
 }
 
-async function convertPageToMarkdown(page, index, publicIdPrefix = "") {
+async function convertPageToMarkdown(page, index, assetsDir, assetPrefix = "") {
   const values = await getAllPropertyValues(page);
 
   const question = values.Question || `Untitled-${index + 1}`;
   const safeFileName = sanitizeFileName(markdownToFileNameText(question));
-  const lines = [`# ${escapeMarkdownHeading(question)}`];
+  const lines = [];
 
   for (const value of [values.Answer, values.Description]) {
     if (value != null && value !== "") {
@@ -647,14 +617,18 @@ async function convertPageToMarkdown(page, index, publicIdPrefix = "") {
       const originalUrl = imageUrls[i];
 
       try {
-        const cloudinaryUrl = await uploadImageUrlToCloudinary(
+        const assetBaseName = sanitizeAssetFileBaseName(
+          `${assetPrefix}-${page.id}-${i + 1}`
+        );
+        const assetRelativePath = await saveImageUrlToAssets(
           originalUrl,
-          sanitizeCloudinaryPublicId(`${publicIdPrefix}-${page.id}-${i + 1}`)
+          assetsDir,
+          assetBaseName
         );
 
-        lines.push(`![](${cloudinaryUrl})`);
+        lines.push(`![](${assetRelativePath})`);
       } catch (error) {
-        lines.push(`画像アップロード失敗: ${originalUrl}`);
+        lines.push(`画像保存失敗: ${originalUrl}`);
         lines.push(`Error: ${error.message}`);
       }
     }
@@ -675,8 +649,10 @@ async function main() {
 
   for (const target of targets) {
     const targetOutputDir = path.join(OUTPUT_DIR, target.outputDirName);
+    const targetAssetsDir = path.join(targetOutputDir, "assets");
 
     await fs.mkdir(targetOutputDir, { recursive: true });
+    await fs.mkdir(targetAssetsDir, { recursive: true });
 
     const pages = await getAllDatabasePages(target.dataSourceId);
 
@@ -690,6 +666,7 @@ async function main() {
       const { fileName, markdown } = await convertPageToMarkdown(
         page,
         i,
+        targetAssetsDir,
         `${target.outputDirName}-`
       );
 

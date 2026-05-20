@@ -210,9 +210,6 @@ importers:
       '@notionhq/client':
         specifier: ^5.21.0
         version: 5.21.0
-      cloudinary:
-        specifier: ^2.10.0
-        version: 2.10.0
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
@@ -225,10 +222,6 @@ packages:
   '@notionhq/client@5.21.0':
     resolution: {integrity: sha512-X+T+hzaQFleOUGm4xUOUm51pOpdZ1+6T4BsRjGlcdEOTJLNkUEv8nZATq9O3ZY4NQEgICc0qwQ0I25OdYprX0w==}
     engines: {node: '>=18'}
-
-  cloudinary@2.10.0:
-    resolution: {integrity: sha512-sY09kYg7wprkndAOjZBAYqFZqwL+SxnEGcAvksOvFA+5upnFn949UjkEkHKNSwkBtW/xRDd0p6NgbSXZcxkI3w==}
-    engines: {node: '>=9'}
 
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
@@ -245,9 +238,6 @@ packages:
   formdata-polyfill@4.0.10:
     resolution: {integrity: sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g==}
     engines: {node: '>=12.20.0'}
-
-  lodash@4.18.1:
-    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
 
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
@@ -266,10 +256,6 @@ snapshots:
 
   '@notionhq/client@5.21.0': {}
 
-  cloudinary@2.10.0:
-    dependencies:
-      lodash: 4.18.1
-
   data-uri-to-buffer@4.0.1: {}
 
   dotenv@17.4.2: {}
@@ -282,8 +268,6 @@ snapshots:
   formdata-polyfill@4.0.10:
     dependencies:
       fetch-blob: 3.2.0
-
-  lodash@4.18.1: {}
 
   node-domexception@1.0.0: {}
 

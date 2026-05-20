@@ -53,23 +53,23 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(quizSet.sources.first?.mappings["question"], "prop-question")
     }
 
-    func testObsidianMarkdownQuizPartsUsesFirstH1AsPrompt() {
+    func testObsidianMarkdownQuizPartsUsesFilenameAsPromptWithoutSeparator() {
         let parts = ObsidianMarkdownQuizParts.parse(
             body: """
-            Intro text
             # $E = mc^2$ #
 
             Answer body
             ## Details
             More answer
-            """
+            """,
+            filenamePrompt: "matrix question"
         )
 
-        XCTAssertEqual(parts?.prompt, "$E = mc^2$")
+        XCTAssertEqual(parts?.prompt, "matrix question")
         XCTAssertEqual(
             parts?.answer,
             """
-            Intro text
+            # $E = mc^2$ #
 
             Answer body
             ## Details
@@ -78,13 +78,47 @@ final class ModelDecodingTests: XCTestCase {
         )
     }
 
-    func testObsidianMarkdownQuizPartsHandlesCompactH1AndKeepsAnswerText() {
+    func testObsidianMarkdownQuizPartsAddsTextAboveSeparatorToPrompt() {
         let parts = ObsidianMarkdownQuizParts.parse(
             body: """
-            #$\\begin{pmatrix}a\\end{pmatrix}$はなんですか？#
+            Intro text
+            $E = mc^2$
+
+            ---
+            Answer body
+            ## Details
+            More answer
+            """,
+            filenamePrompt: "Physics"
+        )
+
+        XCTAssertEqual(
+            parts?.prompt,
+            """
+            Physics
+
+            Intro text
+            $E = mc^2$
+            """
+        )
+        XCTAssertEqual(
+            parts?.answer,
+            """
+            Answer body
+            ## Details
+            More answer
+            """
+        )
+    }
+
+    func testObsidianMarkdownQuizPartsUsesFilenameOnlyWhenSeparatorHasNoPromptBody() {
+        let parts = ObsidianMarkdownQuizParts.parse(
+            body: """
+            ---
             $\\begin{pmatrix}a\\end{pmatrix}$はなんですか？
             ![](image.png)
-            """
+            """,
+            filenamePrompt: "$\\begin{pmatrix}a\\end{pmatrix}$はなんですか？"
         )
 
         XCTAssertEqual(parts?.prompt, "$\\begin{pmatrix}a\\end{pmatrix}$はなんですか？")
@@ -97,13 +131,13 @@ final class ModelDecodingTests: XCTestCase {
         )
     }
 
-    func testObsidianMarkdownQuizPartsIgnoresH2AndRequiresH1() {
+    func testObsidianMarkdownQuizPartsRequiresAnswer() {
         XCTAssertNil(
             ObsidianMarkdownQuizParts.parse(
                 body: """
-                ## Not a question
-                Answer
-                """
+                ---
+                """,
+                filenamePrompt: "Question"
             )
         )
     }

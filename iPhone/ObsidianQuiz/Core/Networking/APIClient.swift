@@ -246,55 +246,44 @@ struct ObsidianMarkdownQuizParts: Equatable {
     let prompt: String
     let answer: String
 
-    static func parse(body: String) -> ObsidianMarkdownQuizParts? {
+    static func parse(body: String, filenamePrompt: String) -> ObsidianMarkdownQuizParts? {
         let normalized = body
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
-        guard let headingIndex = lines.firstIndex(where: { line in
-            h1Content(in: line) != nil
-        }), let prompt = h1Content(in: lines[headingIndex]) else {
+        let basePrompt = filenamePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !basePrompt.isEmpty else {
             return nil
         }
 
-        var answerLines = lines
-        answerLines.remove(at: headingIndex)
-        let answer = answerLines
+        guard let separatorIndex = lines.firstIndex(where: isQuestionAnswerSeparator) else {
+            let answer = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !answer.isEmpty else {
+                return nil
+            }
+            return ObsidianMarkdownQuizParts(prompt: basePrompt, answer: answer)
+        }
+
+        let promptBody = lines[..<separatorIndex]
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = lines[lines.index(after: separatorIndex)...]
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !prompt.isEmpty, !answer.isEmpty else {
+        guard !answer.isEmpty else {
             return nil
         }
 
+        let prompt = [basePrompt, promptBody]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
         return ObsidianMarkdownQuizParts(prompt: prompt, answer: answer)
     }
 
-    private static func h1Content(in line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("#") else {
-            return nil
-        }
-
-        var hashCount = 0
-        var cursor = trimmed.startIndex
-        while cursor < trimmed.endIndex, trimmed[cursor] == "#" {
-            hashCount += 1
-            cursor = trimmed.index(after: cursor)
-        }
-
-        guard hashCount == 1, cursor < trimmed.endIndex else {
-            return nil
-        }
-
-        if trimmed[cursor].isWhitespace {
-            cursor = trimmed.index(after: cursor)
-        }
-
-        return String(trimmed[cursor...])
-            .replacingOccurrences(of: #"[\s#]+$"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func isQuestionAnswerSeparator(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespaces) == "---"
     }
 }
 
@@ -783,7 +772,8 @@ private final class ObsidianQuizStore {
 
                 let relativePath = relativePath(for: fileURL, rootURL: scoped.url)
                 let questionItemId = questionStats.questionItemId ?? pathQuestionItemId(sourceId: source.id, relativePath: relativePath)
-                guard let quizParts = ObsidianMarkdownQuizParts.parse(body: parsed.body) else {
+                let filenamePrompt = fileURL.deletingPathExtension().lastPathComponent
+                guard let quizParts = ObsidianMarkdownQuizParts.parse(body: parsed.body, filenamePrompt: filenamePrompt) else {
                     continue
                 }
 
@@ -796,7 +786,8 @@ private final class ObsidianQuizStore {
                     prompt: [richText(quizParts.prompt)],
                     correctAnswer: [richText(quizParts.answer)],
                     explanation: [],
-                    imageUrls: imageURLs(in: quizParts.answer, markdownURL: fileURL)
+                    promptImageUrls: imageURLs(in: quizParts.prompt, markdownURL: fileURL, rootURL: scoped.url),
+                    imageUrls: imageURLs(in: quizParts.answer, markdownURL: fileURL, rootURL: scoped.url)
                 )
 
                 candidates.append(
@@ -1286,7 +1277,7 @@ private final class ObsidianQuizStore {
         return fallback
     }
 
-    private func imageURLs(in markdown: String, markdownURL: URL) -> [String] {
+    private func imageURLs(in markdown: String, markdownURL: URL, rootURL: URL) -> [String] {
         let result = regexCaptures(pattern: #"!\[[^\]]*\]\(([^)]+)\)|!\[\[([^\]]+)\]\]"#, in: markdown)
 
         return result.compactMap { raw in
@@ -1296,13 +1287,70 @@ private final class ObsidianQuizStore {
             }
             value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
 
-            if value.hasPrefix("http://") || value.hasPrefix("https://") || value.hasPrefix("file://") {
+            if value.hasPrefix("http://") || value.hasPrefix("https://") {
                 return value
             }
 
+            if value.hasPrefix("file://"),
+               let fileURL = URL(string: value) {
+                return displayableLocalImageURL(fileURL).absoluteString
+            }
+
             let decoded = value.removingPercentEncoding ?? value
-            return markdownURL.deletingLastPathComponent().appendingPathComponent(decoded).absoluteString
+            if decoded.hasPrefix("/") {
+                return displayableLocalImageURL(URL(fileURLWithPath: decoded)).absoluteString
+            }
+
+            let relativeURL = markdownURL.deletingLastPathComponent().appendingPathComponent(decoded).standardizedFileURL
+            if FileManager.default.fileExists(atPath: relativeURL.path) {
+                return displayableLocalImageURL(relativeURL).absoluteString
+            }
+
+            if let found = findImage(named: (decoded as NSString).lastPathComponent, under: rootURL) {
+                return displayableLocalImageURL(found).absoluteString
+            }
+
+            return relativeURL.absoluteString
         }
+    }
+
+    private func displayableLocalImageURL(_ fileURL: URL) -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ObsidianQuizImages", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let destination = directory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(fileURL.pathExtension)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.copyItem(at: fileURL, to: destination)
+            return destination
+        } catch {
+            return fileURL
+        }
+    }
+
+    private func findImage(named filename: String, under rootURL: URL) -> URL? {
+        guard !filename.isEmpty,
+              let enumerator = FileManager.default.enumerator(
+                at: rootURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .isHiddenKey],
+                options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+
+        for item in enumerator {
+            guard let url = item as? URL,
+                  url.lastPathComponent == filename,
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            return url.standardizedFileURL
+        }
+
+        return nil
     }
 
     private func regexCaptures(pattern: String, in text: String) -> [String] {

@@ -47,7 +47,59 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
     let prompt: [QuizRichTextItem]
     let correctAnswer: [QuizRichTextItem]
     let explanation: [QuizRichTextItem]
+    let promptImageUrls: [String]
     let imageUrls: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case questionItemId
+        case pageId
+        case dataSourceId
+        case dataSourceName
+        case prompt
+        case correctAnswer
+        case explanation
+        case promptImageUrls
+        case imageUrls
+    }
+
+    init(
+        id: String,
+        questionItemId: String,
+        pageId: String,
+        dataSourceId: String,
+        dataSourceName: String,
+        prompt: [QuizRichTextItem],
+        correctAnswer: [QuizRichTextItem],
+        explanation: [QuizRichTextItem],
+        promptImageUrls: [String] = [],
+        imageUrls: [String]
+    ) {
+        self.id = id
+        self.questionItemId = questionItemId
+        self.pageId = pageId
+        self.dataSourceId = dataSourceId
+        self.dataSourceName = dataSourceName
+        self.prompt = prompt
+        self.correctAnswer = correctAnswer
+        self.explanation = explanation
+        self.promptImageUrls = promptImageUrls
+        self.imageUrls = imageUrls
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        questionItemId = try container.decode(String.self, forKey: .questionItemId)
+        pageId = try container.decode(String.self, forKey: .pageId)
+        dataSourceId = try container.decode(String.self, forKey: .dataSourceId)
+        dataSourceName = try container.decode(String.self, forKey: .dataSourceName)
+        prompt = try container.decode([QuizRichTextItem].self, forKey: .prompt)
+        correctAnswer = try container.decode([QuizRichTextItem].self, forKey: .correctAnswer)
+        explanation = try container.decode([QuizRichTextItem].self, forKey: .explanation)
+        promptImageUrls = try container.decodeIfPresent([String].self, forKey: .promptImageUrls) ?? []
+        imageUrls = try container.decode([String].self, forKey: .imageUrls)
+    }
 }
 
 struct QuizSourceConfig: Codable, Equatable, Identifiable {

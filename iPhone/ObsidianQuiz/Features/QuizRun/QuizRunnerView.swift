@@ -139,7 +139,11 @@ struct QuizRunnerView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     if let currentQuestion {
                         VStack(alignment: .leading, spacing: 0) {
-                            RichTextView(items: currentQuestion.prompt, textStyle: .title3)
+                            MarkdownContentView(
+                                items: currentQuestion.prompt,
+                                imageUrls: currentQuestion.promptImageUrls,
+                                textStyle: .title3
+                            )
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
@@ -181,9 +185,10 @@ struct QuizRunnerView: View {
     }
 
     private func answerView(question: QuizQuestion) -> some View {
-        AnswerMarkdownView(
+        MarkdownContentView(
             items: question.correctAnswer,
-            imageUrls: question.imageUrls
+            imageUrls: question.imageUrls,
+            textStyle: .body
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -452,9 +457,10 @@ struct QuizRunnerView: View {
     }
 }
 
-private struct AnswerMarkdownView: View {
+private struct MarkdownContentView: View {
     let items: [QuizRichTextItem]
     let imageUrls: [String]
+    let textStyle: UIFont.TextStyle
 
     private var markdown: String {
         items.map(\.displayText).joined().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -469,7 +475,7 @@ private struct AnswerMarkdownView: View {
             ForEach(blocks) { block in
                 switch block.kind {
                 case .text(let value):
-                    RichTextView(items: [Self.richText(value)])
+                    RichTextView(items: [Self.richText(value)], textStyle: textStyle)
                 case .image(let urlString):
                     QuestionImageView(urlString: urlString)
                 }
