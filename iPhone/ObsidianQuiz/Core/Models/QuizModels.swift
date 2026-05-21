@@ -49,6 +49,7 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
     let explanation: [QuizRichTextItem]
     let promptImageUrls: [String]
     let imageUrls: [String]
+    let obsidianOpenURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -61,6 +62,7 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
         case explanation
         case promptImageUrls
         case imageUrls
+        case obsidianOpenURL
     }
 
     init(
@@ -73,7 +75,8 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
         correctAnswer: [QuizRichTextItem],
         explanation: [QuizRichTextItem],
         promptImageUrls: [String] = [],
-        imageUrls: [String]
+        imageUrls: [String],
+        obsidianOpenURL: String? = nil
     ) {
         self.id = id
         self.questionItemId = questionItemId
@@ -85,6 +88,7 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
         self.explanation = explanation
         self.promptImageUrls = promptImageUrls
         self.imageUrls = imageUrls
+        self.obsidianOpenURL = obsidianOpenURL
     }
 
     init(from decoder: Decoder) throws {
@@ -99,6 +103,7 @@ struct QuizQuestion: Codable, Equatable, Identifiable {
         explanation = try container.decode([QuizRichTextItem].self, forKey: .explanation)
         promptImageUrls = try container.decodeIfPresent([String].self, forKey: .promptImageUrls) ?? []
         imageUrls = try container.decode([String].self, forKey: .imageUrls)
+        obsidianOpenURL = try container.decodeIfPresent(String.self, forKey: .obsidianOpenURL)
     }
 }
 

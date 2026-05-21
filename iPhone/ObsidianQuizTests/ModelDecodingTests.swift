@@ -151,4 +151,46 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertTrue(displayHTML.contains(#"class="math-display""#))
         XCTAssertTrue(displayHTML.contains(#"\int_0^1 x dx"#))
     }
+
+    func testObsidianURIEncodesVaultAndFileForOpenAction() {
+        let url = ObsidianURI.openFile(
+            target: ObsidianOpenTarget(
+                vaultName: "Private",
+                filePath: "transfer-exam/a #1.md"
+            )
+        )
+
+        XCTAssertEqual(
+            url,
+            "obsidian://open?vault=Private&file=transfer-exam%2Fa%20%231.md"
+        )
+    }
+
+    func testObsidianOpenTargetInfersVaultUnderObsidianFolder() {
+        let target = ObsidianURI.openTarget(
+            fileURL: URL(fileURLWithPath: "/private/var/mobile/Obsidian/Private/transfer-exam/r8.md"),
+            selectedRootURL: URL(fileURLWithPath: "/private/var/mobile/Obsidian/Private/transfer-exam"),
+            selectedFolderName: "transfer-exam",
+            selectedRelativePath: "r8.md"
+        )
+
+        XCTAssertEqual(
+            target,
+            ObsidianOpenTarget(vaultName: "Private", filePath: "transfer-exam/r8.md")
+        )
+    }
+
+    func testObsidianOpenTargetInfersICloudObsidianVault() {
+        let target = ObsidianURI.openTarget(
+            fileURL: URL(fileURLWithPath: "/Users/me/Library/Mobile Documents/iCloud~md~obsidian/Documents/Private/transfer-exam/r8.md"),
+            selectedRootURL: URL(fileURLWithPath: "/Users/me/Library/Mobile Documents/iCloud~md~obsidian/Documents/Private/transfer-exam"),
+            selectedFolderName: "transfer-exam",
+            selectedRelativePath: "r8.md"
+        )
+
+        XCTAssertEqual(
+            target,
+            ObsidianOpenTarget(vaultName: "Private", filePath: "transfer-exam/r8.md")
+        )
+    }
 }

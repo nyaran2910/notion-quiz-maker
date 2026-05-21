@@ -42,16 +42,6 @@ struct QuizSetListView: View {
             }
         }
         .navigationTitle("Quiz")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await loadQuizSets() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Reload")
-            }
-        }
         .task {
             await loadQuizSets()
         }

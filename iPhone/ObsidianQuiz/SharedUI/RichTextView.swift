@@ -62,7 +62,11 @@ private struct ObsidianMarkdownWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
-        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.alwaysBounceHorizontal = true
+        webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.showsHorizontalScrollIndicator = true
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.contentInset = .zero
         webView.isOpaque = false
@@ -109,7 +113,8 @@ private struct ObsidianMarkdownWebView: UIViewRepresentable {
               color: \(Self.cssColor(UIColor.label));
               font: \(font.pointSize)px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
               line-height: 1.5;
-              overflow: hidden;
+              overflow-x: hidden;
+              overflow-y: hidden;
               -webkit-text-size-adjust: 100%;
             }
             body {
@@ -215,14 +220,28 @@ private struct ObsidianMarkdownWebView: UIViewRepresentable {
               font-weight: 700;
               margin-bottom: 0.35em;
             }
-            .math-inline mjx-container {
+            .math-inline {
               display: inline-block;
+              max-width: 100%;
+              overflow-x: auto;
+              overflow-y: hidden;
+              -webkit-overflow-scrolling: touch;
               vertical-align: middle;
             }
             .math-display {
               margin: 0.85em 0;
+              max-width: 100%;
               overflow-x: auto;
-              text-align: center;
+              overflow-y: hidden;
+              -webkit-overflow-scrolling: touch;
+              text-align: left;
+            }
+            .math-inline mjx-container,
+            .math-display mjx-container {
+              display: inline-block;
+              max-width: none;
+              min-width: max-content;
+              vertical-align: middle;
             }
             .math-error {
               color: \(Self.cssColor(UIColor.systemRed));
@@ -244,7 +263,11 @@ private struct ObsidianMarkdownWebView: UIViewRepresentable {
           \(renderedMarkdown)
           <script>
             function updateHeight() {
-              var height = Math.ceil(document.body.getBoundingClientRect().height);
+              var height = Math.ceil(Math.max(
+                document.body.getBoundingClientRect().height,
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight
+              ));
               window.webkit.messageHandlers.height.postMessage(height);
             }
 

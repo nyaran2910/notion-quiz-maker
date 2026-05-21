@@ -344,6 +344,119 @@ private struct ObsidianQuestionCandidate {
     let stats: ObsidianQuestionStats
 }
 
+struct ObsidianOpenTarget: Equatable {
+    let vaultName: String
+    let filePath: String
+}
+
+enum ObsidianURI {
+    static func openFile(target: ObsidianOpenTarget) -> String? {
+        guard let vault = percentEncodeQueryValue(target.vaultName),
+              let file = percentEncodeQueryValue(target.filePath) else {
+            return nil
+        }
+
+        return "obsidian://open?vault=\(vault)&file=\(file)"
+    }
+
+    static func openTarget(
+        fileURL: URL,
+        selectedRootURL: URL,
+        selectedFolderName: String,
+        selectedRelativePath: String
+    ) -> ObsidianOpenTarget {
+        if let target = nearestAccessibleVaultTarget(for: fileURL) {
+            return target
+        }
+
+        let components = fileURL.standardizedFileURL.pathComponents
+
+        if let target = iCloudObsidianTarget(from: components) {
+            return target
+        }
+
+        if let target = targetAfterMarker("Obsidian", in: components) {
+            return target
+        }
+
+        let selectedRootName = selectedRootURL.standardizedFileURL.lastPathComponent
+        let vaultName = selectedRootName.isEmpty ? selectedFolderName : selectedRootName
+        return ObsidianOpenTarget(vaultName: vaultName, filePath: selectedRelativePath)
+    }
+
+    private static func percentEncodeQueryValue(_ value: String) -> String? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=/?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)
+    }
+
+    private static func nearestAccessibleVaultTarget(for fileURL: URL) -> ObsidianOpenTarget? {
+        var candidate = fileURL.standardizedFileURL.deletingLastPathComponent()
+
+        while !candidate.path.isEmpty, candidate.path != "/" {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent(".obsidian", isDirectory: true).path) {
+                return ObsidianOpenTarget(
+                    vaultName: candidate.lastPathComponent,
+                    filePath: relativePath(for: fileURL, rootURL: candidate)
+                )
+            }
+
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path {
+                break
+            }
+            candidate = parent
+        }
+
+        return nil
+    }
+
+    private static func iCloudObsidianTarget(from components: [String]) -> ObsidianOpenTarget? {
+        guard let containerIndex = components.lastIndex(where: { $0 == "iCloud~md~obsidian" }),
+              containerIndex + 1 < components.count,
+              let documentsIndex = components[(containerIndex + 1)...].firstIndex(of: "Documents") else {
+            return nil
+        }
+
+        return targetAfterIndex(documentsIndex, in: components)
+    }
+
+    private static func targetAfterMarker(_ marker: String, in components: [String]) -> ObsidianOpenTarget? {
+        guard let markerIndex = components.lastIndex(of: marker) else {
+            return nil
+        }
+
+        return targetAfterIndex(markerIndex, in: components)
+    }
+
+    private static func targetAfterIndex(_ index: Int, in components: [String]) -> ObsidianOpenTarget? {
+        let vaultIndex = index + 1
+        let firstFileComponentIndex = index + 2
+        guard components.indices.contains(vaultIndex),
+              components.indices.contains(firstFileComponentIndex) else {
+            return nil
+        }
+
+        let filePath = components[firstFileComponentIndex...].joined(separator: "/")
+        guard !components[vaultIndex].isEmpty, !filePath.isEmpty else {
+            return nil
+        }
+
+        return ObsidianOpenTarget(vaultName: components[vaultIndex], filePath: filePath)
+    }
+
+    private static func relativePath(for fileURL: URL, rootURL: URL) -> String {
+        let rootPath = rootURL.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+
+        if filePath.hasPrefix(rootPath + "/") {
+            return String(filePath.dropFirst(rootPath.count + 1))
+        }
+
+        return fileURL.lastPathComponent
+    }
+}
+
 @MainActor
 private final class ObsidianQuizStore {
     private enum Keys {
@@ -787,7 +900,13 @@ private final class ObsidianQuizStore {
                     correctAnswer: [richText(quizParts.answer)],
                     explanation: [],
                     promptImageUrls: imageURLs(in: quizParts.prompt, markdownURL: fileURL, rootURL: scoped.url),
-                    imageUrls: imageURLs(in: quizParts.answer, markdownURL: fileURL, rootURL: scoped.url)
+                    imageUrls: imageURLs(in: quizParts.answer, markdownURL: fileURL, rootURL: scoped.url),
+                    obsidianOpenURL: obsidianOpenURL(
+                        source: source,
+                        rootURL: scoped.url,
+                        fileURL: fileURL,
+                        relativePath: relativePath
+                    )
                 )
 
                 candidates.append(
@@ -1312,6 +1431,21 @@ private final class ObsidianQuizStore {
 
             return relativeURL.absoluteString
         }
+    }
+
+    private func obsidianOpenURL(
+        source: ObsidianFolderSource,
+        rootURL: URL,
+        fileURL: URL,
+        relativePath: String
+    ) -> String? {
+        let target = ObsidianURI.openTarget(
+            fileURL: fileURL,
+            selectedRootURL: rootURL,
+            selectedFolderName: source.name,
+            selectedRelativePath: relativePath
+        )
+        return ObsidianURI.openFile(target: target)
     }
 
     private func displayableLocalImageURL(_ fileURL: URL) -> URL {

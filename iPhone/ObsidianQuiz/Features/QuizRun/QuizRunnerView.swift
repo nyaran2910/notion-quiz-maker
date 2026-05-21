@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QuizRunnerView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.openURL) private var openURL
 
     let quizSet: QuizSetSummary
     let initialQuestionCount: Int?
@@ -63,10 +64,20 @@ struct QuizRunnerView: View {
         .toolbar {
             if let onClose {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Sets") {
+                    Button {
                         onClose()
+                    } label: {
+                        Label("セット一覧へ", systemImage: "chevron.left")
                     }
                 }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    openCurrentQuestionInObsidian()
+                } label: {
+                    Label("Obsidianで開く", systemImage: "doc.text")
+                }
+                .disabled(currentQuestion?.obsidianOpenURL == nil)
             }
         }
         .alert("Error", isPresented: Binding(
@@ -194,6 +205,20 @@ struct QuizRunnerView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func openCurrentQuestionInObsidian() {
+        guard let urlString = currentQuestion?.obsidianOpenURL,
+              let url = URL(string: urlString) else {
+            errorMessage = "この問題のMarkdownファイルを開けません。"
+            return
+        }
+
+        openURL(url) { accepted in
+            if !accepted {
+                errorMessage = "Obsidianを開けませんでした。Obsidianがインストールされ、このフォルダがVaultとして開かれているか確認してください。"
+            }
+        }
     }
 
     private var actionBar: some View {
