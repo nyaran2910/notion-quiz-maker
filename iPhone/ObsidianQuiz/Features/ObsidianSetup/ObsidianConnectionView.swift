@@ -32,15 +32,19 @@ struct ObsidianConnectionView: View {
                         if isConnecting {
                             ProgressView()
                         } else {
-                            Text("Connect")
+                            Label("Connect", systemImage: "link")
                         }
                         Spacer()
                     }
                 }
                 .disabled(isConnecting || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                Button("Sign Out", role: .destructive) {
+                Button(role: .destructive) {
                     Task { await appState.signOut() }
+                } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
         }

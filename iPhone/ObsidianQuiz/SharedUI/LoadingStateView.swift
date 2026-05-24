@@ -7,6 +7,7 @@ struct LoadingStateView: View {
         VStack(spacing: 12) {
             ProgressView()
             Text(message)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

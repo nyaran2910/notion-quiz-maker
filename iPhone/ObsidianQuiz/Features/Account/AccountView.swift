@@ -10,7 +10,7 @@ struct AccountView: View {
     var body: some View {
         Form {
             Section("Storage") {
-                LabeledContent("Folders", value: "\(folderCount)")
+                LabeledContent("DB", value: "\(folderCount)")
                 LabeledContent("Sets", value: "\(quizSetCount)")
             }
 

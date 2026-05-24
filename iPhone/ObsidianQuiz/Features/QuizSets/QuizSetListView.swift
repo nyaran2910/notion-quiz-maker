@@ -49,7 +49,7 @@ struct QuizSetListView: View {
 
     private var quizConfigView: some View {
         Form {
-            Section("Sets") {
+            Section("Set") {
                 ForEach(quizSets) { quizSet in
                     Button {
                         selectedQuizSetId = quizSet.id
@@ -73,15 +73,17 @@ struct QuizSetListView: View {
                     }
                     .buttonStyle(.plain)
                     .swipeActions {
-                        Button("Delete", role: .destructive) {
+                        Button(role: .destructive) {
                             Task { await deleteQuizSet(quizSet) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }
             }
 
-            Section("Questions") {
-                Picker("Questions", selection: $questionCount) {
+            Section("Count") {
+                Picker("Count", selection: $questionCount) {
                     ForEach(presetCounts, id: \.self) { count in
                         Text("\(count)").tag(count)
                     }
@@ -101,10 +103,12 @@ struct QuizSetListView: View {
                 Button {
                     startSelectedQuiz()
                 } label: {
-                    Text("Start")
+                    Label("Start", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(selectedQuizSet == nil)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
         }
         .refreshable {

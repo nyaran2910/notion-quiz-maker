@@ -18,11 +18,13 @@ struct QuizRunnerView: View {
     @State private var questionShownAt: Date?
     @State private var isStarting = false
     @State private var isSubmitting = false
+    @State private var isRestoringPreviousAnswer = false
     @State private var isFinished = false
     @State private var didEndSession = false
     @State private var didAutoStart = false
     @State private var nextQuestionTask: Task<Void, Never>?
     @State private var nextQuestionIndex: Int?
+    @State private var answerHistory: [Int: AnswerHistoryEntry] = [:]
     @State private var errorMessage: String?
 
     private let presetCounts = [5, 10, 20, 50, 100]
@@ -47,6 +49,23 @@ struct QuizRunnerView: View {
         return session.questions[currentIndex]
     }
 
+    private var backTargetIndex: Int? {
+        guard session != nil else {
+            return nil
+        }
+
+        let candidateIndex = isFinished ? currentIndex : currentIndex - 1
+        guard candidateIndex >= 0,
+              answerHistory[candidateIndex]?.undoToken != nil else {
+            return nil
+        }
+        return candidateIndex
+    }
+
+    private var canGoBackOneQuestion: Bool {
+        backTargetIndex != nil && !isSubmitting && !isRestoringPreviousAnswer
+    }
+
     var body: some View {
         Group {
             if let session, isFinished {
@@ -62,20 +81,30 @@ struct QuizRunnerView: View {
         .navigationTitle(quizSet.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let onClose {
+            if session != nil {
                 ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Task { await goBackOneQuestion() }
+                    } label: {
+                        Label("Previous Question", systemImage: "chevron.left")
+                    }
+                    .disabled(!canGoBackOneQuestion)
+                }
+            }
+
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let onClose {
                     Button {
                         onClose()
                     } label: {
-                        Label("セット一覧へ", systemImage: "chevron.left")
+                        Label("Choose Set", systemImage: "rectangle.stack")
                     }
                 }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
+
                 Button {
                     openCurrentQuestionInObsidian()
                 } label: {
-                    Label("Obsidianで開く", systemImage: "doc.text")
+                    Label("Open in Obsidian", systemImage: "doc.text")
                 }
                 .disabled(currentQuestion?.obsidianOpenURL == nil)
             }
@@ -103,14 +132,14 @@ struct QuizRunnerView: View {
 
     private var startView: some View {
         Form {
-            Section("Sources") {
+            Section("DB") {
                 ForEach(quizSet.sources) { source in
                     Text(source.dataSourceName)
                 }
             }
 
-            Section("Questions") {
-                Picker("Questions", selection: $questionCount) {
+            Section("Count") {
+                Picker("Count", selection: $questionCount) {
                     ForEach(presetCounts, id: \.self) { count in
                         Text("\(count)").tag(count)
                     }
@@ -130,12 +159,14 @@ struct QuizRunnerView: View {
                         if isStarting {
                             ProgressView()
                         } else {
-                            Text("Start")
+                            Label("Start", systemImage: "play.fill")
                         }
                         Spacer()
                     }
                 }
                 .disabled(isStarting || quizSet.sources.isEmpty)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
         }
     }
@@ -188,7 +219,7 @@ struct QuizRunnerView: View {
 
             Spacer()
 
-            Text("\(correctCount) correct")
+            Text("Correct \(correctCount)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -210,13 +241,13 @@ struct QuizRunnerView: View {
     private func openCurrentQuestionInObsidian() {
         guard let urlString = currentQuestion?.obsidianOpenURL,
               let url = URL(string: urlString) else {
-            errorMessage = "この問題のMarkdownファイルを開けません。"
+            errorMessage = "This question's Markdown file can't be opened."
             return
         }
 
         openURL(url) { accepted in
             if !accepted {
-                errorMessage = "Obsidianを開けませんでした。Obsidianがインストールされ、このフォルダがVaultとして開かれているか確認してください。"
+                errorMessage = "Couldn't open Obsidian. Make sure Obsidian is installed and this folder is open as a vault."
             }
         }
     }
@@ -227,34 +258,34 @@ struct QuizRunnerView: View {
                 Button {
                     hasRevealedAnswer = true
                 } label: {
-                    Text("Show Answer")
+                    Label("Show Answer", systemImage: "eye")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(currentQuestion == nil)
+                .disabled(currentQuestion == nil || isRestoringPreviousAnswer)
                 .padding()
             } else {
                 HStack(spacing: 12) {
                     Button {
                         Task { await submitAnswer(isCorrect: false) }
                     } label: {
-                        Text("Forgot")
+                        Label("Forgot", systemImage: "xmark.circle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || isRestoringPreviousAnswer)
 
                     Button {
                         Task { await submitAnswer(isCorrect: true) }
                     } label: {
-                        Text("Remembered")
+                        Label("Remembered", systemImage: "checkmark.circle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || isRestoringPreviousAnswer)
                 }
                 .padding()
             }
@@ -274,7 +305,7 @@ struct QuizRunnerView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button("Again") {
+            Button {
                 if startsImmediately {
                     let count = initialQuestionCount ?? requestedQuestionCount()
                     reset()
@@ -282,6 +313,8 @@ struct QuizRunnerView: View {
                 } else {
                     reset()
                 }
+            } label: {
+                Label("Again", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -309,12 +342,14 @@ struct QuizRunnerView: View {
             if started.questions.isEmpty {
                 started.plannedQuestionCount = 0
                 session = started
+                answerHistory = [:]
                 isFinished = true
             } else {
                 session = started
                 appState.preferences.lastQuizSetId = quizSet.id
                 currentIndex = 0
                 correctCount = 0
+                answerHistory = [:]
                 hasRevealedAnswer = false
                 isFinished = false
                 didEndSession = false
@@ -328,6 +363,35 @@ struct QuizRunnerView: View {
         isStarting = false
     }
 
+    private func goBackOneQuestion() async {
+        guard !isRestoringPreviousAnswer,
+              let targetIndex = backTargetIndex,
+              let entry = answerHistory[targetIndex],
+              let undoToken = entry.undoToken else {
+            return
+        }
+
+        isRestoringPreviousAnswer = true
+        errorMessage = nil
+
+        do {
+            try await appState.api.restoreAnswerMetadata(undoToken)
+            answerHistory[targetIndex] = nil
+            if entry.isCorrect {
+                correctCount = max(0, correctCount - 1)
+            }
+            currentIndex = targetIndex
+            hasRevealedAnswer = false
+            isFinished = false
+            didEndSession = false
+            questionShownAt = Date()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isRestoringPreviousAnswer = false
+    }
+
     private func submitAnswer(isCorrect: Bool) async {
         guard !isSubmitting, let question = currentQuestion, let activeSession = session else {
             return
@@ -335,6 +399,7 @@ struct QuizRunnerView: View {
 
         isSubmitting = true
         errorMessage = nil
+        defer { isSubmitting = false }
 
         let responseTimeMs = questionShownAt.map { max(0, Int(Date().timeIntervalSince($0) * 1000)) }
         let source = quizSet.sources.first { $0.dataSourceId == question.dataSourceId }
@@ -349,30 +414,32 @@ struct QuizRunnerView: View {
             mappings: source?.mappings
         )
 
-        if isCorrect {
-            correctCount += 1
+        do {
+            let response = try await appState.api.recordAnswer(request)
+            answerHistory[currentIndex] = AnswerHistoryEntry(isCorrect: isCorrect, undoToken: response.undoToken)
+
+            if isCorrect {
+                correctCount += 1
+            }
+
+            if currentIndex + 1 >= activeSession.plannedQuestionCount {
+                finishSessionInBackground()
+                return
+            }
+
+            let nextIndex = currentIndex + 1
+            currentIndex = nextIndex
+            hasRevealedAnswer = false
+            questionShownAt = Date()
+
+            if session?.questions.indices.contains(nextIndex) == true {
+                prefetchNextQuestionIfNeeded(after: nextIndex)
+            } else {
+                loadQuestionIfNeeded(at: nextIndex)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
         }
-
-        recordAnswerInBackground(request)
-
-        if currentIndex + 1 >= activeSession.plannedQuestionCount {
-            finishSessionInBackground()
-            isSubmitting = false
-            return
-        }
-
-        let nextIndex = currentIndex + 1
-        currentIndex = nextIndex
-        hasRevealedAnswer = false
-        questionShownAt = Date()
-
-        if session?.questions.indices.contains(nextIndex) == true {
-            prefetchNextQuestionIfNeeded(after: nextIndex)
-        } else {
-            loadQuestionIfNeeded(at: nextIndex)
-        }
-
-        isSubmitting = false
     }
 
     private func prefetchNextQuestionIfNeeded(after questionIndex: Int) {
@@ -439,16 +506,6 @@ struct QuizRunnerView: View {
         }
     }
 
-    private func recordAnswerInBackground(_ request: RecordAnswerRequest) {
-        Task { @MainActor in
-            do {
-                _ = try await appState.api.recordAnswer(request)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
     private func finishSessionInBackground() {
         isFinished = true
 
@@ -475,11 +532,18 @@ struct QuizRunnerView: View {
         currentIndex = 0
         hasRevealedAnswer = false
         correctCount = 0
+        answerHistory = [:]
         questionShownAt = nil
         isFinished = false
         didEndSession = false
+        isRestoringPreviousAnswer = false
         errorMessage = nil
     }
+}
+
+private struct AnswerHistoryEntry {
+    let isCorrect: Bool
+    let undoToken: QuizAnswerUndoToken?
 }
 
 private struct MarkdownContentView: View {

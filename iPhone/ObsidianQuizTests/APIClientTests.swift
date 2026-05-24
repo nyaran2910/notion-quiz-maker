@@ -83,6 +83,200 @@ final class APIClientTests: XCTestCase {
         }
     }
 
+    func testRestoreAnswerMetadataReturnsQuestionToPreAnswerFrontMatter() async throws {
+        let client = makeClient()
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        let markdownURL = folderURL.appendingPathComponent("Question.md")
+        try """
+        Answer body
+        """.write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let sources = try await client.addObsidianFolders([folderURL])
+        let source = try XCTUnwrap(sources.first)
+        let quizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+        let started = try await client.startQuiz(sources: [quizSource], questionCount: 1)
+        let question = try XCTUnwrap(started.questions.first)
+        let beforeAnswer = try String(contentsOf: markdownURL, encoding: .utf8)
+
+        let response = try await client.recordAnswer(
+            RecordAnswerRequest(
+                pageId: question.pageId,
+                questionItemId: question.questionItemId,
+                sessionId: started.sessionId,
+                isCorrect: true,
+                questionPosition: 1,
+                responseTimeMs: 1200,
+                mappings: nil
+            )
+        )
+
+        let answered = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertTrue(answered.contains("answer_count: 1"))
+        XCTAssertTrue(answered.contains("correct_count: 1"))
+
+        let undoToken = try XCTUnwrap(response.undoToken)
+        try await client.restoreAnswerMetadata(undoToken)
+
+        let restored = try String(contentsOf: markdownURL, encoding: .utf8)
+        XCTAssertEqual(restored, beforeAnswer)
+    }
+
+    func testSelectedParentFolderMergesNestedDatabaseFolders() async throws {
+        let client = makeClient()
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+        let matrixDBURL = folderURL.appendingPathComponent("matrixDB", isDirectory: true)
+        let odeDBURL = folderURL.appendingPathComponent("odeDB", isDirectory: true)
+        try FileManager.default.createDirectory(at: matrixDBURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: odeDBURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        try "Rank answer".write(
+            to: matrixDBURL.appendingPathComponent("Matrix Rank.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "Linear ode answer".write(
+            to: odeDBURL.appendingPathComponent("Linear ODE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sources = try await client.addObsidianFolders([folderURL])
+        let source = try XCTUnwrap(sources.first)
+        let quizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+
+        let sync = try await client.syncSources([quizSource])
+        XCTAssertEqual(sync.sourceCount, 1)
+        XCTAssertEqual(sync.questionCount, 2)
+
+        let started = try await client.startQuiz(sources: [quizSource], questionCount: 10)
+        XCTAssertEqual(started.totalCandidates, 2)
+        XCTAssertEqual(started.plannedQuestionCount, 2)
+        XCTAssertEqual(Set(started.questions.map(\.dataSourceId)), [source.id])
+        XCTAssertEqual(Set(started.questions.map(\.dataSourceName)), [source.name])
+        XCTAssertEqual(Set(started.questions.compactMap { $0.prompt.first?.displayText }), ["Matrix Rank", "Linear ODE"])
+    }
+
+    func testRenamingObsidianFolderUsesCustomDatabaseName() async throws {
+        let client = makeClient()
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        try "Answer body".write(
+            to: folderURL.appendingPathComponent("Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sources = try await client.addObsidianFolders([folderURL])
+        let source = try XCTUnwrap(sources.first)
+        let originalQuizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+        _ = try await client.createQuizSet(
+            name: "Daily",
+            description: nil,
+            sources: [originalQuizSource]
+        )
+
+        let renamed = try await client.renameObsidianFolder(id: source.id, name: "Math DB")
+
+        XCTAssertEqual(renamed.id, source.id)
+        XCTAssertEqual(renamed.name, "Math DB")
+
+        let dataSources = try await client.listDataSources().dataSources
+        XCTAssertEqual(dataSources.first(where: { $0.id == source.id })?.name, "Math DB")
+
+        let quizSets = try await client.listQuizSets().quizSets
+        XCTAssertEqual(quizSets.first?.sources.first?.dataSourceName, "Math DB")
+
+        let reauthorized = try await client.addObsidianFolders([folderURL])
+        XCTAssertEqual(reauthorized.first?.id, source.id)
+        XCTAssertEqual(reauthorized.first?.name, "Math DB")
+
+        let started = try await client.startQuiz(sources: [originalQuizSource], questionCount: 1)
+        XCTAssertEqual(started.questions.first?.dataSourceId, source.id)
+        XCTAssertEqual(started.questions.first?.dataSourceName, "Math DB")
+    }
+
+    func testEditingObsidianFolderCanChangeNameAndReferencedFolder() async throws {
+        let client = makeClient()
+        let oldFolderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)-old", isDirectory: true)
+        let newFolderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)-new", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldFolderURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newFolderURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: oldFolderURL)
+            try? FileManager.default.removeItem(at: newFolderURL)
+        }
+
+        try "Old answer".write(
+            to: oldFolderURL.appendingPathComponent("Old Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "New answer".write(
+            to: newFolderURL.appendingPathComponent("New Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sources = try await client.addObsidianFolders([oldFolderURL])
+        let source = try XCTUnwrap(sources.first)
+        let originalQuizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+        _ = try await client.createQuizSet(
+            name: "Daily",
+            description: nil,
+            sources: [originalQuizSource]
+        )
+
+        let edited = try await client.updateObsidianFolder(
+            id: source.id,
+            name: "Physics DB",
+            url: newFolderURL
+        )
+
+        XCTAssertEqual(edited.id, source.id)
+        XCTAssertEqual(edited.name, "Physics DB")
+        XCTAssertEqual(edited.parentTitle, newFolderURL.path)
+
+        let quizSets = try await client.listQuizSets().quizSets
+        XCTAssertEqual(quizSets.first?.sources.first?.dataSourceName, "Physics DB")
+        XCTAssertEqual(quizSets.first?.sources.first?.dataSourceUrl, newFolderURL.path)
+
+        let started = try await client.startQuiz(sources: [originalQuizSource], questionCount: 1)
+        XCTAssertEqual(started.questions.first?.dataSourceId, source.id)
+        XCTAssertEqual(started.questions.first?.dataSourceName, "Physics DB")
+        XCTAssertEqual(started.questions.first?.prompt.first?.displayText, "New Question")
+    }
+
     private func makeClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolMock.self]

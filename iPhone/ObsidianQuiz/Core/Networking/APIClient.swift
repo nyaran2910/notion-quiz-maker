@@ -193,12 +193,24 @@ extension APIClient {
         try await obsidianStore.recordAnswer(request)
     }
 
+    func restoreAnswerMetadata(_ token: QuizAnswerUndoToken) async throws {
+        try await obsidianStore.restoreAnswerMetadata(token)
+    }
+
     func endQuiz(sessionId: String) async throws -> EndQuizSessionResponse {
         try await obsidianStore.endQuiz(sessionId: sessionId)
     }
 
     func addObsidianFolders(_ urls: [URL]) async throws -> [AccessibleDataSource] {
         try await obsidianStore.addFolders(urls)
+    }
+
+    func renameObsidianFolder(id: String, name: String) async throws -> AccessibleDataSource {
+        try await obsidianStore.renameFolder(id: id, name: name)
+    }
+
+    func updateObsidianFolder(id: String, name: String, url: URL?) async throws -> AccessibleDataSource {
+        try await obsidianStore.updateFolder(id: id, name: name, url: url)
     }
 
     func removeObsidianFolder(id: String) async throws {
@@ -209,6 +221,8 @@ extension APIClient {
 private enum ObsidianQuizStoreError: LocalizedError, Equatable {
     case folderNotFound
     case folderUnavailable(String)
+    case folderAlreadyConfigured
+    case invalidDataSourceName
     case questionNotFound
     case unreadableMarkdown(String)
 
@@ -218,6 +232,10 @@ private enum ObsidianQuizStoreError: LocalizedError, Equatable {
             return "Folder not found. Select it again in Settings."
         case .folderUnavailable(let name):
             return "\(name) can't be opened. Select the Obsidian folder again."
+        case .folderAlreadyConfigured:
+            return "That folder is already configured as another DB."
+        case .invalidDataSourceName:
+            return "Enter a DB name."
         case .questionNotFound:
             return "Question file not found."
         case .unreadableMarkdown(let path):
@@ -523,12 +541,14 @@ private final class ObsidianQuizStore {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )) ?? Data()
-            let name = folderDisplayName(url)
+            let defaultName = folderDisplayName(url)
             let path = url.path
             let urlString = url.absoluteString
 
             if let index = folders.firstIndex(where: { $0.lastKnownURLString == urlString || $0.lastKnownPath == path }) {
-                folders[index].name = name
+                if folders[index].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    folders[index].name = defaultName
+                }
                 folders[index].bookmarkData = bookmarkData
                 folders[index].lastKnownPath = path
                 folders[index].lastKnownURLString = urlString
@@ -537,7 +557,7 @@ private final class ObsidianQuizStore {
             } else {
                 let source = ObsidianFolderSource(
                     id: UUID().uuidString,
-                    name: name,
+                    name: defaultName,
                     bookmarkData: bookmarkData,
                     lastKnownPath: path,
                     lastKnownURLString: urlString,
@@ -551,6 +571,55 @@ private final class ObsidianQuizStore {
 
         saveFolders(folders)
         return added.map(accessibleDataSource)
+    }
+
+    func renameFolder(id: String, name: String) async throws -> AccessibleDataSource {
+        try await updateFolder(id: id, name: name, url: nil)
+    }
+
+    func updateFolder(id: String, name: String, url: URL?) async throws -> AccessibleDataSource {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw ObsidianQuizStoreError.invalidDataSourceName
+        }
+
+        var folders = loadFolders()
+        guard let index = folders.firstIndex(where: { $0.id == id }) else {
+            throw ObsidianQuizStoreError.folderNotFound
+        }
+
+        let now = isoString(Date())
+        folders[index].name = trimmedName
+
+        if let url {
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStart {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let path = url.path
+            let urlString = url.absoluteString
+            if folders.contains(where: { $0.id != id && ($0.lastKnownPath == path || $0.lastKnownURLString == urlString) }) {
+                throw ObsidianQuizStoreError.folderAlreadyConfigured
+            }
+
+            folders[index].bookmarkData = (try? url.bookmarkData(
+                options: [],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )) ?? Data()
+            folders[index].lastKnownPath = path
+            folders[index].lastKnownURLString = urlString
+        }
+
+        folders[index].updatedAt = now
+        let updated = folders[index]
+
+        saveFolders(folders)
+        updateQuizSetSnapshots(for: updated, updatedAt: now)
+        return accessibleDataSource(updated)
     }
 
     func removeFolder(id: String) async throws {
@@ -663,6 +732,7 @@ private final class ObsidianQuizStore {
         let parsed = try parseMarkdownFile(located.fileURL)
         var stats = stats(from: parsed)
         stats.questionItemId = request.questionItemId
+        let undoToken = answerUndoToken(from: stats)
         let updated = updateStats(stats, isCorrect: request.isCorrect, responseTimeMs: request.responseTimeMs)
         try writeMetadata(to: located.fileURL, parsed: parsed, stats: updated)
 
@@ -672,8 +742,16 @@ private final class ObsidianQuizStore {
                 accuracy: updated.answerCount > 0 ? Double(updated.correctCount) / Double(updated.answerCount) : 0,
                 stage: updated.stage,
                 nextDueAt: updated.nextDueAt.map(isoString)
-            )
+            ),
+            undoToken: undoToken
         )
+    }
+
+    func restoreAnswerMetadata(_ token: QuizAnswerUndoToken) async throws {
+        let located = try findQuestionFile(questionItemId: token.questionItemId)
+        defer { located.stop() }
+        let parsed = try parseMarkdownFile(located.fileURL)
+        try writeMetadata(to: located.fileURL, parsed: parsed, stats: stats(from: token))
     }
 
     func endQuiz(sessionId: String) async throws -> EndQuizSessionResponse {
@@ -691,7 +769,7 @@ private final class ObsidianQuizStore {
         let scoped = try resolve(source)
         defer { scoped.stop() }
 
-        let files = markdownFiles(in: scoped.url)
+        let files = questionMarkdownFiles(in: scoped.url)
         for fileURL in files {
             let parsed = try parseMarkdownFile(fileURL)
             var stats = ObsidianQuestionStats.fresh()
@@ -724,6 +802,39 @@ private final class ObsidianQuizStore {
                 mappings: [:]
             )
         }
+    }
+
+    private func updateQuizSetSnapshots(for folder: ObsidianFolderSource, updatedAt: String) {
+        let quizSets = loadQuizSets().map { quizSet in
+            var didUpdate = false
+            let sources = quizSet.sources.map { source in
+                guard source.dataSourceId == folder.id else {
+                    return source
+                }
+
+                didUpdate = true
+                return QuizSourceConfig(
+                    dataSourceId: folder.id,
+                    dataSourceName: folder.name,
+                    dataSourceUrl: folder.lastKnownPath,
+                    mappings: source.mappings
+                )
+            }
+
+            guard didUpdate else {
+                return quizSet
+            }
+
+            return QuizSetSummary(
+                id: quizSet.id,
+                name: quizSet.name,
+                description: quizSet.description,
+                updatedAt: updatedAt,
+                sources: sources
+            )
+        }
+
+        saveQuizSets(quizSets)
     }
 
     private func loadFolders() -> [ObsidianFolderSource] {
@@ -868,7 +979,7 @@ private final class ObsidianQuizStore {
             let scoped = try resolve(source)
             defer { scoped.stop() }
 
-            for fileURL in markdownFiles(in: scoped.url) {
+            for fileURL in questionMarkdownFiles(in: scoped.url) {
                 var parsed = try parseMarkdownFile(fileURL)
                 var questionStats = stats(from: parsed)
 
@@ -927,12 +1038,12 @@ private final class ObsidianQuizStore {
         return candidates
     }
 
-    private func markdownFiles(in rootURL: URL) -> [URL] {
+    private func questionMarkdownFiles(in rootURL: URL) -> [URL] {
         (try? coordinatedRead(at: rootURL) { url in
             guard let enumerator = FileManager.default.enumerator(
                 at: url,
                 includingPropertiesForKeys: [.isRegularFileKey, .isHiddenKey],
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else {
                 return []
             }
@@ -1065,6 +1176,54 @@ private final class ObsidianQuizStore {
         stats.nextDueAt = dateValue(fields["next_due_at"])
         stats.updatedAt = dateValue(fields["updated_at"]) ?? stats.updatedAt
         return stats
+    }
+
+    private func answerUndoToken(from stats: ObsidianQuestionStats) -> QuizAnswerUndoToken {
+        QuizAnswerUndoToken(
+            questionItemId: stats.questionItemId ?? UUID().uuidString,
+            answerCount: stats.answerCount,
+            correctCount: stats.correctCount,
+            wrongCount: stats.wrongCount,
+            correctStreak: stats.correctStreak,
+            wrongStreak: stats.wrongStreak,
+            lastAnsweredAt: stats.lastAnsweredAt.map(isoString),
+            lastCorrectAt: stats.lastCorrectAt.map(isoString),
+            lastResult: stats.lastResult,
+            stage: stats.stage,
+            suspended: stats.suspended,
+            stability: stats.stability,
+            ease: stats.ease,
+            difficulty: stats.difficulty,
+            lastIntervalSeconds: stats.lastIntervalSeconds,
+            emaAccuracy: stats.emaAccuracy,
+            avgResponseTimeMs: stats.avgResponseTimeMs,
+            nextDueAt: stats.nextDueAt.map(isoString),
+            updatedAt: isoString(stats.updatedAt)
+        )
+    }
+
+    private func stats(from token: QuizAnswerUndoToken) -> ObsidianQuestionStats {
+        ObsidianQuestionStats(
+            questionItemId: token.questionItemId,
+            answerCount: token.answerCount,
+            correctCount: token.correctCount,
+            wrongCount: token.wrongCount,
+            correctStreak: token.correctStreak,
+            wrongStreak: token.wrongStreak,
+            lastAnsweredAt: dateValue(token.lastAnsweredAt),
+            lastCorrectAt: dateValue(token.lastCorrectAt),
+            lastResult: token.lastResult,
+            stage: token.stage,
+            suspended: token.suspended,
+            stability: token.stability,
+            ease: token.ease,
+            difficulty: token.difficulty,
+            lastIntervalSeconds: token.lastIntervalSeconds,
+            emaAccuracy: token.emaAccuracy,
+            avgResponseTimeMs: token.avgResponseTimeMs,
+            nextDueAt: dateValue(token.nextDueAt),
+            updatedAt: dateValue(token.updatedAt) ?? Date()
+        )
     }
 
     private func selectQuestions(from candidates: [ObsidianQuestionCandidate], limit: Int) -> [QuizQuestion] {
@@ -1346,7 +1505,7 @@ private final class ObsidianQuizStore {
         for source in folders {
             let scoped = try resolve(source)
 
-            for fileURL in markdownFiles(in: scoped.url) {
+            for fileURL in questionMarkdownFiles(in: scoped.url) {
                 let parsed = try parseMarkdownFile(fileURL)
                 let stats = stats(from: parsed)
                 let relativePath = relativePath(for: fileURL, rootURL: scoped.url)

@@ -17,6 +17,15 @@ struct AuthView: View {
         case signUp = "Sign Up"
 
         var id: String { rawValue }
+
+        var iconName: String {
+            switch self {
+            case .signIn:
+                return "person.crop.circle.badge.checkmark"
+            case .signUp:
+                return "person.crop.circle.badge.plus"
+            }
+        }
     }
 
     var body: some View {
@@ -64,16 +73,20 @@ struct AuthView: View {
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
 
-                    Button("Save Base URL") {
+                    Button {
                         preferences.baseURLString = baseURLDraft
+                    } label: {
+                        Label("Save Base URL", systemImage: "checkmark.circle")
                     }
 
-                    Button("Reset Base URL") {
+                    Button {
                         preferences.resetBaseURL()
                         baseURLDraft = preferences.baseURLString
+                    } label: {
+                        Label("Reset Base URL", systemImage: "arrow.counterclockwise")
                     }
                 } header: {
-                    Text("API")
+                    Text("API Settings")
                 }
 
                 Section {
@@ -85,15 +98,17 @@ struct AuthView: View {
                             if isSubmitting {
                                 ProgressView()
                             } else {
-                                Text(mode.rawValue)
+                                Label(mode.rawValue, systemImage: mode.iconName)
                             }
                             Spacer()
                         }
                     }
                     .disabled(isSubmitting || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                 }
             }
-            .navigationTitle("Obsidian Quiz")
+            .navigationTitle("Knode")
             .onAppear {
                 baseURLDraft = preferences.baseURLString
             }

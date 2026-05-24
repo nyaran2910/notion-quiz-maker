@@ -11,7 +11,9 @@ struct ErrorStateView: View {
             Text(message)
         } actions: {
             if let retry {
-                Button("Retry", action: retry)
+                Button(action: retry) {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
                     .buttonStyle(.borderedProminent)
             }
         }

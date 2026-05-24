@@ -13,11 +13,16 @@ struct ObsidianSetupView: View {
     @State private var isQuizSetEditorPresented = false
     @State private var isFolderPickerPresented = false
     @State private var isEditorFolderPickerPresented = false
+    @State private var isDBEditorFolderPickerPresented = false
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var deletingQuizSetId: String?
     @State private var quizSetPendingDelete: QuizSetSummary?
     @State private var folderPendingDelete: AccessibleDataSource?
+    @State private var editingFolder: AccessibleDataSource?
+    @State private var editingFolderName = ""
+    @State private var editingFolderReplacementURL: URL?
+    @State private var isSavingFolder = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -26,8 +31,10 @@ struct ObsidianSetupView: View {
                 Section {
                     Text(errorMessage)
                         .foregroundStyle(.red)
-                    Button("Reload") {
+                    Button {
                         Task { await loadAll() }
+                    } label: {
+                        Label("Reload", systemImage: "arrow.clockwise")
                     }
                 }
             }
@@ -36,19 +43,44 @@ struct ObsidianSetupView: View {
             foldersSection
         }
         .navigationTitle("Settings")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await loadAll() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .accessibilityLabel("Reload")
-            }
-        }
         .sheet(isPresented: $isFolderPickerPresented) {
             FolderDocumentPicker { urls in
                 Task { await addFolders(urls) }
+            }
+        }
+        .sheet(item: $editingFolder, onDismiss: {
+            editingFolderName = ""
+            editingFolderReplacementURL = nil
+            isSavingFolder = false
+            isDBEditorFolderPickerPresented = false
+        }) { folder in
+            NavigationStack {
+                editingFolderView(folder)
+                    .navigationTitle("Edit DB")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") {
+                                editingFolder = nil
+                            }
+                        }
+
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button {
+                                Task { await saveEditingFolder(folder) }
+                            } label: {
+                                if isSavingFolder {
+                                    ProgressView()
+                                } else {
+                                    Label("Save", systemImage: "checkmark.circle")
+                                }
+                            }
+                            .disabled(
+                                isSavingFolder
+                                || editingFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+                        }
+                    }
             }
         }
         .sheet(isPresented: Binding(
@@ -57,7 +89,7 @@ struct ObsidianSetupView: View {
         )) {
             NavigationStack {
                 editingQuizSetView
-                    .navigationTitle(editingQuizSetId == nil ? "New Set" : "Edit Set")
+                    .navigationTitle(editingQuizSetId == nil ? "Create Set" : "Edit Set")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -65,11 +97,31 @@ struct ObsidianSetupView: View {
                                 clearEditingDraft()
                             }
                         }
+
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button {
+                                Task { await saveEditingQuizSet() }
+                            } label: {
+                                if isSaving {
+                                    ProgressView()
+                                } else {
+                                    Label(
+                                        editingQuizSetId == nil ? "Create" : "Save",
+                                        systemImage: editingQuizSetId == nil ? "plus.circle" : "checkmark.circle"
+                                    )
+                                }
+                            }
+                            .disabled(
+                                isSaving
+                                || editingSelectedFolderIds.isEmpty
+                                || editingQuizSetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+                        }
                     }
             }
         }
         .confirmationDialog(
-            "Delete set?",
+            "Delete this quiz set?",
             isPresented: Binding(
                 get: { quizSetPendingDelete != nil },
                 set: { if !$0 { quizSetPendingDelete = nil } }
@@ -77,14 +129,16 @@ struct ObsidianSetupView: View {
             titleVisibility: .visible
         ) {
             if let quizSet = quizSetPendingDelete {
-                Button("Delete", role: .destructive) {
+                Button(role: .destructive) {
                     Task { await deleteQuizSet(quizSet) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
             Button("Cancel", role: .cancel) {}
         }
         .confirmationDialog(
-            "Delete folder?",
+            "Delete this DB?",
             isPresented: Binding(
                 get: { folderPendingDelete != nil },
                 set: { if !$0 { folderPendingDelete = nil } }
@@ -92,8 +146,10 @@ struct ObsidianSetupView: View {
             titleVisibility: .visible
         ) {
             if let folder = folderPendingDelete {
-                Button("Delete", role: .destructive) {
+                Button(role: .destructive) {
                     Task { await removeFolder(folder) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -119,7 +175,8 @@ struct ObsidianSetupView: View {
                     Text("Loading...")
                 }
             } else if quizSets.isEmpty {
-                Text("No sets")
+                Label("No Sets", systemImage: "rectangle.stack")
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(quizSets) { quizSet in
                     VStack(alignment: .leading, spacing: 8) {
@@ -166,33 +223,97 @@ struct ObsidianSetupView: View {
             Button {
                 isFolderPickerPresented = true
             } label: {
-                Label("Add Folder", systemImage: "folder.badge.plus")
+                Label("Add DB", systemImage: "folder.badge.plus")
             }
 
             if folders.isEmpty {
-                Text("No folders")
+                Label("No DBs", systemImage: "folder")
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(folders) { folder in
-                    HStack {
-                        Text(folder.name)
-                            .font(.headline)
-
-                        Spacer()
-
-                        Button("Delete", role: .destructive) {
-                            folderPendingDelete = folder
+                    VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(folder.name)
+                                .font(.headline)
                         }
-                        .buttonStyle(.borderless)
+
+                        HStack {
+                            Button {
+                                beginEdit(folder)
+                            } label: {
+                                Label("Edit", systemImage: "square.and.pencil")
+                            }
+                            .font(.caption)
+                            .buttonStyle(.borderless)
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                folderPendingDelete = folder
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .font(.caption)
+                            .buttonStyle(.borderless)
+                        }
                     }
+                    .padding(.vertical, 4)
                     .swipeActions {
-                        Button("Delete", role: .destructive) {
+                        Button(role: .destructive) {
                             folderPendingDelete = folder
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+
+                        Button {
+                            beginEdit(folder)
+                        } label: {
+                            Label("Edit", systemImage: "square.and.pencil")
                         }
                     }
                 }
             }
         } header: {
-            Text("Folders")
+            Text("DB")
+        }
+    }
+
+    private func editingFolderView(_ folder: AccessibleDataSource) -> some View {
+        Form {
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section("DB") {
+                TextField("DB Name", text: $editingFolderName)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        Task { await saveEditingFolder(folder) }
+                    }
+
+                LabeledContent("Folder Path") {
+                    Text(editingFolderReplacementURL?.path ?? folder.parentTitle ?? "Unknown")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+
+                Button {
+                    isDBEditorFolderPickerPresented = true
+                } label: {
+                    Label("Change Folder", systemImage: "folder")
+                }
+            }
+        }
+        .sheet(isPresented: $isDBEditorFolderPickerPresented) {
+            FolderDocumentPicker(allowsMultipleSelection: false) { urls in
+                editingFolderReplacementURL = urls.first
+            }
         }
     }
 
@@ -206,18 +327,19 @@ struct ObsidianSetupView: View {
             }
 
             Section("Set") {
-                TextField("Name", text: $editingQuizSetName)
+                TextField("Set Name", text: $editingQuizSetName)
             }
 
             Section {
                 Button {
                     isEditorFolderPickerPresented = true
                 } label: {
-                    Label("Add Folder", systemImage: "folder.badge.plus")
+                    Label("Add DB", systemImage: "folder.badge.plus")
                 }
 
                 if folders.isEmpty {
-                    Text("No folders")
+                    Label("No DBs", systemImage: "folder")
+                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(folders) { folder in
                         Button {
@@ -227,6 +349,14 @@ struct ObsidianSetupView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(folder.name)
                                         .foregroundStyle(.primary)
+
+                                    if let path = folder.parentTitle, !path.isEmpty {
+                                        Text(path)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
                                 }
 
                                 Spacer()
@@ -241,29 +371,9 @@ struct ObsidianSetupView: View {
                     }
                 }
             } header: {
-                Text("Folders")
+                Text("DB")
             }
 
-            Section {
-                Button {
-                    Task { await saveEditingQuizSet() }
-                } label: {
-                    HStack {
-                        Spacer()
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text(editingQuizSetId == nil ? "Create" : "Save")
-                        }
-                        Spacer()
-                    }
-                }
-                .disabled(
-                    isSaving
-                    || editingSelectedFolderIds.isEmpty
-                    || editingQuizSetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-            }
         }
         .sheet(isPresented: $isEditorFolderPickerPresented) {
             FolderDocumentPicker { urls in
@@ -321,6 +431,13 @@ struct ObsidianSetupView: View {
         editingSelectedFolderIds = Set(quizSet.sources.map(\.dataSourceId))
         errorMessage = nil
         isQuizSetEditorPresented = true
+    }
+
+    private func beginEdit(_ folder: AccessibleDataSource) {
+        editingFolder = folder
+        editingFolderName = folder.name
+        editingFolderReplacementURL = nil
+        errorMessage = nil
     }
 
     private func clearEditingDraft() {
@@ -414,9 +531,33 @@ struct ObsidianSetupView: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    private func saveEditingFolder(_ folder: AccessibleDataSource) async {
+        guard !isSavingFolder else {
+            return
+        }
+
+        isSavingFolder = true
+        errorMessage = nil
+
+        do {
+            _ = try await appState.api.updateObsidianFolder(
+                id: folder.id,
+                name: editingFolderName,
+                url: editingFolderReplacementURL
+            )
+            await loadAll()
+            editingFolder = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isSavingFolder = false
+    }
 }
 
 private struct FolderDocumentPicker: UIViewControllerRepresentable {
+    var allowsMultipleSelection = true
     let onPick: ([URL]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -425,7 +566,7 @@ private struct FolderDocumentPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-        picker.allowsMultipleSelection = true
+        picker.allowsMultipleSelection = allowsMultipleSelection
         picker.delegate = context.coordinator
         return picker
     }

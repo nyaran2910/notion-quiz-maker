@@ -17,7 +17,8 @@ targets:
     info:
       path: ObsidianQuiz/Info.plist
       properties:
-        CFBundleDisplayName: Obsidian Quiz
+        CFBundleDisplayName: Knode
+        CFBundleName: Knode
         UILaunchScreen: {}
         LSSupportsOpeningDocumentsInPlace: true
         UIFileSharingEnabled: true

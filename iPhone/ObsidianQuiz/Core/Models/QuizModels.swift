@@ -170,6 +170,28 @@ struct RecordAnswerRequest: Encodable {
     let mappings: QuizMappings?
 }
 
+struct QuizAnswerUndoToken: Codable, Equatable {
+    let questionItemId: String
+    let answerCount: Int
+    let correctCount: Int
+    let wrongCount: Int
+    let correctStreak: Int
+    let wrongStreak: Int
+    let lastAnsweredAt: String?
+    let lastCorrectAt: String?
+    let lastResult: String?
+    let stage: String
+    let suspended: Bool
+    let stability: Double
+    let ease: Double
+    let difficulty: Double
+    let lastIntervalSeconds: Int?
+    let emaAccuracy: Double
+    let avgResponseTimeMs: Int?
+    let nextDueAt: String?
+    let updatedAt: String
+}
+
 struct QuestionStatsSummary: Decodable, Equatable {
     let askedCount: Int
     let accuracy: Double
@@ -179,6 +201,7 @@ struct QuestionStatsSummary: Decodable, Equatable {
 
 struct RecordAnswerResponse: Decodable, Equatable {
     let stats: QuestionStatsSummary
+    let undoToken: QuizAnswerUndoToken?
 }
 
 struct EndQuizSessionRequest: Encodable {
