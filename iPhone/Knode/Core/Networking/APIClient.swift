@@ -22,7 +22,7 @@ final class APIClient {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let obsidianStore: ObsidianQuizStore
+    private let obsidianStore: KnodeStore
 
     init(
         preferences: AppPreferences = .shared,
@@ -32,7 +32,7 @@ final class APIClient {
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
-        self.obsidianStore = ObsidianQuizStore(preferences: preferences)
+        self.obsidianStore = KnodeStore(preferences: preferences)
     }
 
     private static func makeDefaultSession() -> URLSession {
@@ -218,7 +218,7 @@ extension APIClient {
     }
 }
 
-private enum ObsidianQuizStoreError: LocalizedError, Equatable {
+private enum KnodeStoreError: LocalizedError, Equatable {
     case folderNotFound
     case folderUnavailable(String)
     case folderAlreadyConfigured
@@ -476,7 +476,7 @@ enum ObsidianURI {
 }
 
 @MainActor
-private final class ObsidianQuizStore {
+private final class KnodeStore {
     private enum Keys {
         static let folders = "obsidianFolderSources"
         static let quizSets = "obsidianQuizSets"
@@ -580,12 +580,12 @@ private final class ObsidianQuizStore {
     func updateFolder(id: String, name: String, url: URL?) async throws -> AccessibleDataSource {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            throw ObsidianQuizStoreError.invalidDataSourceName
+            throw KnodeStoreError.invalidDataSourceName
         }
 
         var folders = loadFolders()
         guard let index = folders.firstIndex(where: { $0.id == id }) else {
-            throw ObsidianQuizStoreError.folderNotFound
+            throw KnodeStoreError.folderNotFound
         }
 
         let now = isoString(Date())
@@ -602,7 +602,7 @@ private final class ObsidianQuizStore {
             let path = url.path
             let urlString = url.absoluteString
             if folders.contains(where: { $0.id != id && ($0.lastKnownPath == path || $0.lastKnownURLString == urlString) }) {
-                throw ObsidianQuizStoreError.folderAlreadyConfigured
+                throw KnodeStoreError.folderAlreadyConfigured
             }
 
             folders[index].bookmarkData = (try? url.bookmarkData(
@@ -645,7 +645,7 @@ private final class ObsidianQuizStore {
 
     func getDataSourceSchema(id: String) async throws -> DataSourceSchemaResponse {
         guard let folder = loadFolders().first(where: { $0.id == id }) else {
-            throw ObsidianQuizStoreError.folderNotFound
+            throw KnodeStoreError.folderNotFound
         }
 
         return DataSourceSchemaResponse(
@@ -763,7 +763,7 @@ private final class ObsidianQuizStore {
 
     func resetDataSourceMetadata(dataSourceId: String) async throws {
         guard let source = loadFolders().first(where: { $0.id == dataSourceId }) else {
-            throw ObsidianQuizStoreError.folderNotFound
+            throw KnodeStoreError.folderNotFound
         }
 
         let scoped = try resolve(source)
@@ -881,7 +881,7 @@ private final class ObsidianQuizStore {
             if didStart {
                 url.stopAccessingSecurityScopedResource()
             }
-            throw ObsidianQuizStoreError.folderUnavailable(source.name)
+            throw KnodeStoreError.folderUnavailable(source.name)
         }
 
         return (
@@ -915,7 +915,7 @@ private final class ObsidianQuizStore {
             return URL(fileURLWithPath: source.lastKnownPath)
         }
 
-        throw ObsidianQuizStoreError.folderUnavailable(source.name)
+        throw KnodeStoreError.folderUnavailable(source.name)
     }
 
     private func coordinatedRead<Result>(at url: URL, _ read: (URL) throws -> Result) throws -> Result {
@@ -943,7 +943,7 @@ private final class ObsidianQuizStore {
             throw coordinatorError
         }
 
-        throw ObsidianQuizStoreError.folderUnavailable(url.lastPathComponent)
+        throw KnodeStoreError.folderUnavailable(url.lastPathComponent)
     }
 
     private func coordinatedWrite(at url: URL, _ write: (URL) throws -> Void) throws {
@@ -1065,7 +1065,7 @@ private final class ObsidianQuizStore {
         guard let content = try? coordinatedRead(at: fileURL, { url in
             try String(contentsOf: url, encoding: .utf8)
         }) else {
-            throw ObsidianQuizStoreError.unreadableMarkdown(fileURL.lastPathComponent)
+            throw KnodeStoreError.unreadableMarkdown(fileURL.lastPathComponent)
         }
 
         return parseMarkdown(content)
@@ -1517,7 +1517,7 @@ private final class ObsidianQuizStore {
             scoped.stop()
         }
 
-        throw ObsidianQuizStoreError.questionNotFound
+        throw KnodeStoreError.questionNotFound
     }
 
     private func relativePath(for fileURL: URL, rootURL: URL) -> String {
@@ -1608,7 +1608,7 @@ private final class ObsidianQuizStore {
     }
 
     private func displayableLocalImageURL(_ fileURL: URL) -> URL {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ObsidianQuizImages", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("KnodeImages", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let destination = directory

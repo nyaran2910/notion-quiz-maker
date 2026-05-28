@@ -6,7 +6,6 @@ struct QuizSetListView: View {
     @State private var quizSets: [QuizSetSummary] = []
     @State private var selectedQuizSetId: String?
     @State private var questionCount = 5
-    @State private var customQuestionCount = ""
     @State private var activeQuizSet: QuizSetSummary?
     @State private var activeQuestionCount = 5
     @State private var isLoading = false
@@ -89,22 +88,18 @@ struct QuizSetListView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
-                TextField("Custom", text: $customQuestionCount)
-                    .keyboardType(.numberPad)
-                    .onChange(of: customQuestionCount) { _, value in
-                        if let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), parsed > 0 {
-                            questionCount = parsed
-                        }
-                    }
             }
 
             Section {
                 Button {
                     startSelectedQuiz()
                 } label: {
-                    Label("Start", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
+                    HStack {
+                        Spacer()
+                        Text("Start")
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .disabled(selectedQuizSet == nil)
                 .buttonStyle(.borderedProminent)
@@ -139,12 +134,7 @@ struct QuizSetListView: View {
     }
 
     private func requestedQuestionCount() -> Int {
-        let trimmed = customQuestionCount.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let value = Int(trimmed), value > 0 {
-            return value
-        }
-
-        return questionCount
+        questionCount
     }
 
     private func startSelectedQuiz() {

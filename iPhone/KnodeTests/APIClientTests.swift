@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ObsidianQuiz
+@testable import Knode
 
 private final class URLProtocolMock: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -86,7 +86,7 @@ final class APIClientTests: XCTestCase {
     func testRestoreAnswerMetadataReturnsQuestionToPreAnswerFrontMatter() async throws {
         let client = makeClient()
         let folderURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folderURL) }
 
@@ -133,7 +133,7 @@ final class APIClientTests: XCTestCase {
     func testSelectedParentFolderMergesNestedDatabaseFolders() async throws {
         let client = makeClient()
         let folderURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
         let matrixDBURL = folderURL.appendingPathComponent("matrixDB", isDirectory: true)
         let odeDBURL = folderURL.appendingPathComponent("odeDB", isDirectory: true)
         try FileManager.default.createDirectory(at: matrixDBURL, withIntermediateDirectories: true)
@@ -175,7 +175,7 @@ final class APIClientTests: XCTestCase {
     func testRenamingObsidianFolderUsesCustomDatabaseName() async throws {
         let client = makeClient()
         let folderURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folderURL) }
 
@@ -222,9 +222,9 @@ final class APIClientTests: XCTestCase {
     func testEditingObsidianFolderCanChangeNameAndReferencedFolder() async throws {
         let client = makeClient()
         let oldFolderURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)-old", isDirectory: true)
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)-old", isDirectory: true)
         let newFolderURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ObsidianQuizTests-\(UUID().uuidString)-new", isDirectory: true)
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)-new", isDirectory: true)
         try FileManager.default.createDirectory(at: oldFolderURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: newFolderURL, withIntermediateDirectories: true)
         defer {
@@ -282,7 +282,7 @@ final class APIClientTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolMock.self]
         configuration.httpCookieStorage = HTTPCookieStorage()
         let session = URLSession(configuration: configuration)
-        let defaults = UserDefaults(suiteName: "ObsidianQuizTests-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: "KnodeTests-\(UUID().uuidString)")!
         let preferences = AppPreferences(defaults: defaults)
         preferences.baseURLString = "https://example.test"
         return APIClient(preferences: preferences, session: session)

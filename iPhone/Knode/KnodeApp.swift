@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ObsidianQuizApp: App {
+struct KnodeApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {

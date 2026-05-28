@@ -1,5 +1,5 @@
 import XCTest
-@testable import ObsidianQuiz
+@testable import Knode
 
 @MainActor
 final class ModelDecodingTests: XCTestCase {

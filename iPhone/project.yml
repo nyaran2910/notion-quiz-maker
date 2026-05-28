@@ -1,4 +1,4 @@
-name: ObsidianQuiz
+name: Knode
 options:
   bundleIdPrefix: com.nyaran
   deploymentTarget:
@@ -9,13 +9,13 @@ settings:
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
-  ObsidianQuiz:
+  Knode:
     type: application
     platform: iOS
     sources:
-      - ObsidianQuiz
+      - Knode
     info:
-      path: ObsidianQuiz/Info.plist
+      path: Knode/Info.plist
       properties:
         CFBundleDisplayName: Knode
         CFBundleName: Knode
@@ -26,18 +26,28 @@ targets:
           NSAllowsArbitraryLoads: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nyaran.ObsidianQuiz
+        PRODUCT_BUNDLE_IDENTIFIER: com.nyaran.Knode
+        PRODUCT_NAME: Knode
         GENERATE_INFOPLIST_FILE: NO
-  ObsidianQuizTests:
+  KnodeTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - ObsidianQuizTests
+      - KnodeTests
     dependencies:
-      - target: ObsidianQuiz
+      - target: Knode
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nyaran.ObsidianQuizTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.nyaran.KnodeTests
+        PRODUCT_NAME: KnodeTests
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/ObsidianQuiz.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ObsidianQuiz"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Knode.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Knode"
         BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  Knode:
+    build:
+      targets:
+        Knode: all
+    test:
+      targets:
+        - KnodeTests

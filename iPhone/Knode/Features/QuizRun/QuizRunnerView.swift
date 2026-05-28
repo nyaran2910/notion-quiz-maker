@@ -10,7 +10,6 @@ struct QuizRunnerView: View {
     let onClose: (() -> Void)?
 
     @State private var questionCount: Int
-    @State private var customQuestionCount = ""
     @State private var session: StartedQuizSession?
     @State private var currentIndex = 0
     @State private var hasRevealedAnswer = false
@@ -145,9 +144,6 @@ struct QuizRunnerView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
-                TextField("Custom", text: $customQuestionCount)
-                    .keyboardType(.numberPad)
             }
 
             Section {
@@ -159,10 +155,11 @@ struct QuizRunnerView: View {
                         if isStarting {
                             ProgressView()
                         } else {
-                            Label("Start", systemImage: "play.fill")
+                            Text("Start")
                         }
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 .disabled(isStarting || quizSet.sources.isEmpty)
                 .buttonStyle(.borderedProminent)
@@ -326,11 +323,7 @@ struct QuizRunnerView: View {
     }
 
     private func requestedQuestionCount() -> Int {
-        let trimmed = customQuestionCount.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let value = Int(trimmed), value > 0 {
-            return value
-        }
-        return questionCount
+        questionCount
     }
 
     private func startQuiz(questionCountOverride: Int? = nil) async {
