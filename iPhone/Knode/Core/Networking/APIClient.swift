@@ -306,48 +306,76 @@ struct ObsidianMarkdownQuizParts: Equatable {
 }
 
 private struct ObsidianQuestionStats: Equatable {
-    var questionItemId: String?
-    var answerCount: Int
-    var correctCount: Int
-    var wrongCount: Int
-    var correctStreak: Int
-    var wrongStreak: Int
-    var lastAnsweredAt: Date?
-    var lastCorrectAt: Date?
-    var lastResult: String?
-    var stage: String
-    var suspended: Bool
-    var stability: Double
-    var ease: Double
-    var difficulty: Double
-    var lastIntervalSeconds: Int?
-    var emaAccuracy: Double
-    var avgResponseTimeMs: Int?
-    var nextDueAt: Date?
-    var updatedAt: Date
+    var status: ObsidianQuestionStatus
 
-    static func fresh(now: Date = Date()) -> ObsidianQuestionStats {
-        ObsidianQuestionStats(
-            questionItemId: nil,
-            answerCount: 0,
-            correctCount: 0,
-            wrongCount: 0,
-            correctStreak: 0,
-            wrongStreak: 0,
-            lastAnsweredAt: nil,
-            lastCorrectAt: nil,
-            lastResult: nil,
-            stage: "NEW",
-            suspended: false,
-            stability: 0.3,
-            ease: 1.3,
-            difficulty: 1.0,
-            lastIntervalSeconds: nil,
-            emaAccuracy: 0.5,
-            avgResponseTimeMs: nil,
-            nextDueAt: nil,
-            updatedAt: now
-        )
+    static func fresh() -> ObsidianQuestionStats {
+        ObsidianQuestionStats(status: .unknown)
+    }
+}
+
+private enum ObsidianQuestionStatus: String, CaseIterable {
+    case unknown
+    case familiar
+    case recognized
+    case mastered
+
+    var rank: Int {
+        switch self {
+        case .unknown:
+            return 0
+        case .familiar:
+            return 1
+        case .recognized:
+            return 2
+        case .mastered:
+            return 3
+        }
+    }
+
+    var stageName: String {
+        rawValue
+    }
+
+    func advancedAfterCorrect() -> ObsidianQuestionStatus {
+        switch self {
+        case .unknown:
+            return .familiar
+        case .familiar:
+            return .recognized
+        case .recognized, .mastered:
+            return .mastered
+        }
+    }
+
+    func demotedAfterWrong() -> ObsidianQuestionStatus {
+        switch self {
+        case .unknown, .familiar:
+            return .unknown
+        case .recognized:
+            return .familiar
+        case .mastered:
+            return .recognized
+        }
+    }
+
+    static func parse(_ value: String?) -> ObsidianQuestionStatus {
+        guard let value else {
+            return .unknown
+        }
+
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "unknown", "new", "learning", "lapse":
+            return .unknown
+        case "familiar":
+            return .familiar
+        case "recognized", "review":
+            return .recognized
+        case "mastered":
+            return .mastered
+        default:
+            return .unknown
+        }
     }
 }
 
@@ -483,30 +511,10 @@ private final class KnodeStore {
     }
 
     private enum Metadata {
-        static let questionItemId = "obsidian_quiz_id"
-        static let orderedKeys = [
-            "answer_count",
-            "correct_count",
-            "wrong_count",
-            "correct_streak",
-            "wrong_streak",
-            "last_answered_at",
-            "last_correct_at",
-            "last_result",
-            "stage",
-            "suspended",
-            "stability",
-            "ease",
-            "difficulty",
-            "last_interval_seconds",
-            "ema_accuracy",
-            "avg_response_time_ms",
-            "next_due_at",
-            "updated_at",
-        ]
+        static let status = "status"
 
         static var ownedKeys: Set<String> {
-            Set([questionItemId] + orderedKeys)
+            [status]
         }
     }
 
@@ -658,7 +666,7 @@ private final class KnodeStore {
     }
 
     func syncSources(_ sources: [QuizSourceConfig]) async throws -> SyncQuizSourcesResponse {
-        let questions = try loadCandidates(sources: sources, ensureIdentifiers: true)
+        let questions = try loadCandidates(sources: sources)
         return SyncQuizSourcesResponse(sourceCount: sources.count, questionCount: questions.count)
     }
 
@@ -707,7 +715,7 @@ private final class KnodeStore {
     }
 
     func startQuiz(sources: [QuizSourceConfig], questionCount: Int) async throws -> StartedQuizSession {
-        let candidates = try loadCandidates(sources: sources, ensureIdentifiers: true)
+        let candidates = try loadCandidates(sources: sources)
         let selected = selectQuestions(from: candidates, limit: questionCount)
         let sessionId = UUID().uuidString
         sessions[sessionId] = selected
@@ -730,18 +738,17 @@ private final class KnodeStore {
         let located = try findQuestionFile(questionItemId: request.questionItemId)
         defer { located.stop() }
         let parsed = try parseMarkdownFile(located.fileURL)
-        var stats = stats(from: parsed)
-        stats.questionItemId = request.questionItemId
-        let undoToken = answerUndoToken(from: stats)
-        let updated = updateStats(stats, isCorrect: request.isCorrect, responseTimeMs: request.responseTimeMs)
+        let stats = stats(from: parsed)
+        let undoToken = answerUndoToken(questionItemId: request.questionItemId, stats: stats)
+        let updated = updateStats(stats, isCorrect: request.isCorrect)
         try writeMetadata(to: located.fileURL, parsed: parsed, stats: updated)
 
         return RecordAnswerResponse(
             stats: QuestionStatsSummary(
-                askedCount: updated.answerCount,
-                accuracy: updated.answerCount > 0 ? Double(updated.correctCount) / Double(updated.answerCount) : 0,
-                stage: updated.stage,
-                nextDueAt: updated.nextDueAt.map(isoString)
+                askedCount: 0,
+                accuracy: request.isCorrect ? 1 : 0,
+                stage: updated.status.stageName,
+                nextDueAt: nil
             ),
             undoToken: undoToken
         )
@@ -772,9 +779,7 @@ private final class KnodeStore {
         let files = questionMarkdownFiles(in: scoped.url)
         for fileURL in files {
             let parsed = try parseMarkdownFile(fileURL)
-            var stats = ObsidianQuestionStats.fresh()
-            stats.questionItemId = parsed.fields[Metadata.questionItemId] ?? UUID().uuidString
-            try writeMetadata(to: fileURL, parsed: parsed, stats: stats)
+            try writeMetadata(to: fileURL, parsed: parsed, stats: .fresh())
         }
     }
 
@@ -967,7 +972,7 @@ private final class KnodeStore {
         }
     }
 
-    private func loadCandidates(sources: [QuizSourceConfig], ensureIdentifiers: Bool) throws -> [ObsidianQuestionCandidate] {
+    private func loadCandidates(sources: [QuizSourceConfig]) throws -> [ObsidianQuestionCandidate] {
         let foldersById = Dictionary(uniqueKeysWithValues: loadFolders().map { ($0.id, $0) })
         var candidates: [ObsidianQuestionCandidate] = []
 
@@ -980,22 +985,10 @@ private final class KnodeStore {
             defer { scoped.stop() }
 
             for fileURL in questionMarkdownFiles(in: scoped.url) {
-                var parsed = try parseMarkdownFile(fileURL)
-                var questionStats = stats(from: parsed)
-
-                if questionStats.questionItemId == nil, ensureIdentifiers {
-                    questionStats.questionItemId = UUID().uuidString
-                    try writeMetadata(to: fileURL, parsed: parsed, stats: questionStats)
-                    parsed = try parseMarkdownFile(fileURL)
-                    questionStats = stats(from: parsed)
-                }
-
-                guard questionStats.suspended == false else {
-                    continue
-                }
-
+                let parsed = try parseMarkdownFile(fileURL)
+                let questionStats = stats(from: parsed)
                 let relativePath = relativePath(for: fileURL, rootURL: scoped.url)
-                let questionItemId = questionStats.questionItemId ?? pathQuestionItemId(sourceId: source.id, relativePath: relativePath)
+                let questionItemId = pathQuestionItemId(sourceId: source.id, relativePath: relativePath)
                 let filenamePrompt = fileURL.deletingPathExtension().lastPathComponent
                 guard let quizParts = ObsidianMarkdownQuizParts.parse(body: parsed.body, filenamePrompt: filenamePrompt) else {
                     continue
@@ -1109,43 +1102,7 @@ private final class KnodeStore {
         }
 
         var lines = unknownLines
-        lines.append("\(Metadata.questionItemId): \(yamlString(stats.questionItemId ?? UUID().uuidString))")
-        lines.append("answer_count: \(stats.answerCount)")
-        lines.append("correct_count: \(stats.correctCount)")
-        lines.append("wrong_count: \(stats.wrongCount)")
-        lines.append("correct_streak: \(stats.correctStreak)")
-        lines.append("wrong_streak: \(stats.wrongStreak)")
-
-        if let lastAnsweredAt = stats.lastAnsweredAt {
-            lines.append("last_answered_at: \(yamlString(isoString(lastAnsweredAt)))")
-        }
-        if let lastCorrectAt = stats.lastCorrectAt {
-            lines.append("last_correct_at: \(yamlString(isoString(lastCorrectAt)))")
-        }
-        if let lastResult = stats.lastResult {
-            lines.append("last_result: \(yamlString(lastResult))")
-        }
-
-        lines.append("stage: \(yamlString(stats.stage))")
-        lines.append("suspended: \(stats.suspended ? "true" : "false")")
-        lines.append("stability: \(decimalString(stats.stability))")
-        lines.append("ease: \(decimalString(stats.ease))")
-        lines.append("difficulty: \(decimalString(stats.difficulty))")
-
-        if let lastIntervalSeconds = stats.lastIntervalSeconds {
-            lines.append("last_interval_seconds: \(lastIntervalSeconds)")
-        }
-
-        lines.append("ema_accuracy: \(decimalString(stats.emaAccuracy))")
-
-        if let avgResponseTimeMs = stats.avgResponseTimeMs {
-            lines.append("avg_response_time_ms: \(avgResponseTimeMs)")
-        }
-        if let nextDueAt = stats.nextDueAt {
-            lines.append("next_due_at: \(yamlString(isoString(nextDueAt)))")
-        }
-
-        lines.append("updated_at: \(yamlString(isoString(stats.updatedAt)))")
+        lines.append("\(Metadata.status): \(stats.status.rawValue)")
 
         let newContent = "---\n\(lines.joined(separator: "\n"))\n---\n\(parsed.body)"
         try coordinatedWrite(at: fileURL) { url in
@@ -1154,76 +1111,36 @@ private final class KnodeStore {
     }
 
     private func stats(from parsed: ParsedMarkdown) -> ObsidianQuestionStats {
-        var stats = ObsidianQuestionStats.fresh()
         let fields = parsed.fields
-        stats.questionItemId = fields[Metadata.questionItemId]
-        stats.answerCount = intValue(fields["answer_count"]) ?? stats.answerCount
-        stats.correctCount = intValue(fields["correct_count"]) ?? stats.correctCount
-        stats.wrongCount = intValue(fields["wrong_count"]) ?? stats.wrongCount
-        stats.correctStreak = intValue(fields["correct_streak"]) ?? stats.correctStreak
-        stats.wrongStreak = intValue(fields["wrong_streak"]) ?? stats.wrongStreak
-        stats.lastAnsweredAt = dateValue(fields["last_answered_at"])
-        stats.lastCorrectAt = dateValue(fields["last_correct_at"])
-        stats.lastResult = fields["last_result"]
-        stats.stage = fields["stage"] ?? stats.stage
-        stats.suspended = boolValue(fields["suspended"]) ?? stats.suspended
-        stats.stability = doubleValue(fields["stability"]) ?? stats.stability
-        stats.ease = doubleValue(fields["ease"]) ?? stats.ease
-        stats.difficulty = doubleValue(fields["difficulty"]) ?? stats.difficulty
-        stats.lastIntervalSeconds = intValue(fields["last_interval_seconds"])
-        stats.emaAccuracy = doubleValue(fields["ema_accuracy"]) ?? stats.emaAccuracy
-        stats.avgResponseTimeMs = intValue(fields["avg_response_time_ms"])
-        stats.nextDueAt = dateValue(fields["next_due_at"])
-        stats.updatedAt = dateValue(fields["updated_at"]) ?? stats.updatedAt
-        return stats
+        return ObsidianQuestionStats(status: ObsidianQuestionStatus.parse(fields[Metadata.status] ?? fields["stage"]))
     }
 
-    private func answerUndoToken(from stats: ObsidianQuestionStats) -> QuizAnswerUndoToken {
+    private func answerUndoToken(questionItemId: String, stats: ObsidianQuestionStats) -> QuizAnswerUndoToken {
         QuizAnswerUndoToken(
-            questionItemId: stats.questionItemId ?? UUID().uuidString,
-            answerCount: stats.answerCount,
-            correctCount: stats.correctCount,
-            wrongCount: stats.wrongCount,
-            correctStreak: stats.correctStreak,
-            wrongStreak: stats.wrongStreak,
-            lastAnsweredAt: stats.lastAnsweredAt.map(isoString),
-            lastCorrectAt: stats.lastCorrectAt.map(isoString),
-            lastResult: stats.lastResult,
-            stage: stats.stage,
-            suspended: stats.suspended,
-            stability: stats.stability,
-            ease: stats.ease,
-            difficulty: stats.difficulty,
-            lastIntervalSeconds: stats.lastIntervalSeconds,
-            emaAccuracy: stats.emaAccuracy,
-            avgResponseTimeMs: stats.avgResponseTimeMs,
-            nextDueAt: stats.nextDueAt.map(isoString),
-            updatedAt: isoString(stats.updatedAt)
+            questionItemId: questionItemId,
+            answerCount: 0,
+            correctCount: 0,
+            wrongCount: 0,
+            correctStreak: 0,
+            wrongStreak: 0,
+            lastAnsweredAt: nil,
+            lastCorrectAt: nil,
+            lastResult: nil,
+            stage: stats.status.rawValue,
+            suspended: false,
+            stability: 0,
+            ease: 0,
+            difficulty: 0,
+            lastIntervalSeconds: nil,
+            emaAccuracy: 0,
+            avgResponseTimeMs: nil,
+            nextDueAt: nil,
+            updatedAt: isoString(Date())
         )
     }
 
     private func stats(from token: QuizAnswerUndoToken) -> ObsidianQuestionStats {
-        ObsidianQuestionStats(
-            questionItemId: token.questionItemId,
-            answerCount: token.answerCount,
-            correctCount: token.correctCount,
-            wrongCount: token.wrongCount,
-            correctStreak: token.correctStreak,
-            wrongStreak: token.wrongStreak,
-            lastAnsweredAt: dateValue(token.lastAnsweredAt),
-            lastCorrectAt: dateValue(token.lastCorrectAt),
-            lastResult: token.lastResult,
-            stage: token.stage,
-            suspended: token.suspended,
-            stability: token.stability,
-            ease: token.ease,
-            difficulty: token.difficulty,
-            lastIntervalSeconds: token.lastIntervalSeconds,
-            emaAccuracy: token.emaAccuracy,
-            avgResponseTimeMs: token.avgResponseTimeMs,
-            nextDueAt: dateValue(token.nextDueAt),
-            updatedAt: dateValue(token.updatedAt) ?? Date()
-        )
+        ObsidianQuestionStats(status: ObsidianQuestionStatus.parse(token.stage))
     }
 
     private func selectQuestions(from candidates: [ObsidianQuestionCandidate], limit: Int) -> [QuizQuestion] {
@@ -1252,236 +1169,27 @@ private final class KnodeStore {
         lastCategory: String?
     ) -> ObsidianQuestionCandidate? {
         let recentExclusion = Set(recentQuestionIds.suffix(5))
-        let active = candidates.filter { !$0.stats.suspended }
-        let unseen = active.filter { !recentExclusion.contains($0.question.questionItemId) }
-        let pool = unseen.isEmpty ? active : unseen
+        let unseen = candidates.filter { !recentExclusion.contains($0.question.questionItemId) }
+        let pool = unseen.isEmpty ? candidates : unseen
         guard !pool.isEmpty else {
             return nil
         }
 
-        let now = Date()
-        let scored = pool.map { candidate -> (candidate: ObsidianQuestionCandidate, score: Double) in
-            var score = calculateQuestionScore(stats: candidate.stats, now: now)
-            if let category = candidate.category, let lastCategory, category == lastCategory {
-                score *= 0.85
+        let lowestRank = pool.map(\.stats.status.rank).min() ?? ObsidianQuestionStatus.unknown.rank
+        let weakest = pool.filter { $0.stats.status.rank == lowestRank }
+        let varied = weakest.filter { candidate in
+            guard let category = candidate.category, let lastCategory else {
+                return true
             }
-            return (candidate, score)
-        }
 
-        let weighted = scored.map { entry in
-            (candidate: entry.candidate, weight: pow(max(entry.score, 0), 1.2) + 0.02)
+            return category != lastCategory
         }
-        let total = weighted.reduce(0) { $0 + $1.weight }
-        guard total > 0 else {
-            return weighted.last?.candidate
-        }
-
-        var threshold = Double.random(in: 0..<total)
-        for entry in weighted {
-            threshold -= entry.weight
-            if threshold <= 0 {
-                return entry.candidate
-            }
-        }
-
-        return weighted.last?.candidate
+        let finalPool = varied.isEmpty ? weakest : varied
+        return finalPool.randomElement()
     }
 
-    private func calculateQuestionScore(stats: ObsidianQuestionStats, now: Date) -> Double {
-        max(
-            0,
-            0.4 * dueScore(stats: stats, now: now)
-                + 0.2 * weakScore(stats: stats)
-                + 0.15 * noveltyScore(stats: stats)
-                + 0.15 * difficultyScore(stats: stats)
-                - 0.25 * fatiguePenalty(stats: stats, now: now)
-        )
-    }
-
-    private func dueScore(stats: ObsidianQuestionStats, now: Date) -> Double {
-        if let nextDueAt = stats.nextDueAt {
-            let overdueDays = max(0, now.timeIntervalSince(nextDueAt) / 86_400)
-            return sigmoid(overdueDays / 2)
-        }
-
-        guard let lastAnsweredAt = stats.lastAnsweredAt else {
-            return 1
-        }
-
-        let elapsedDays = now.timeIntervalSince(lastAnsweredAt) / 86_400
-        let retention = exp(-elapsedDays / max(stats.stability, 0.1))
-        return 1 - retention
-    }
-
-    private func weakScore(stats: ObsidianQuestionStats) -> Double {
-        let longTerm = 1 - adjustedAccuracy(correctCount: stats.correctCount, answerCount: stats.answerCount)
-        let shortTerm = 1 - stats.emaAccuracy
-        let raw = 0.6 * shortTerm + 0.4 * longTerm
-        let confidence = min(1, Double(stats.answerCount) / 10)
-        return confidence * raw + (1 - confidence) * 0.5
-    }
-
-    private func noveltyScore(stats: ObsidianQuestionStats) -> Double {
-        if stats.answerCount == 0 {
-            return 1
-        }
-
-        if stats.answerCount < 3 {
-            return 0.5
-        }
-
-        return 0
-    }
-
-    private func difficultyScore(stats: ObsidianQuestionStats) -> Double {
-        let clipped = max(0.1, min(3.0, stats.difficulty))
-        return (clipped - 0.1) / (3.0 - 0.1)
-    }
-
-    private func fatiguePenalty(stats: ObsidianQuestionStats, now: Date) -> Double {
-        guard let lastAnsweredAt = stats.lastAnsweredAt else {
-            return 0
-        }
-
-        let elapsedMinutes = now.timeIntervalSince(lastAnsweredAt) / 60
-        return exp(-elapsedMinutes / 30)
-    }
-
-    private func updateStats(_ stats: ObsidianQuestionStats, isCorrect: Bool, responseTimeMs: Int?) -> ObsidianQuestionStats {
-        let now = Date()
-        var updated = stats
-        let answerCount = stats.answerCount + 1
-        let correctCount = stats.correctCount + (isCorrect ? 1 : 0)
-        let wrongCount = stats.wrongCount + (isCorrect ? 0 : 1)
-        let correctStreak = isCorrect ? stats.correctStreak + 1 : 0
-        let wrongStreak = isCorrect ? 0 : stats.wrongStreak + 1
-        let emaAccuracy = stats.emaAccuracy * 0.8 + (isCorrect ? 0.2 : 0)
-        let timeFactor = responseTimeFactor(responseTimeMs)
-
-        var stability = stats.stability
-        var ease = stats.ease
-        var difficulty = stats.difficulty
-        let lastIntervalSeconds: Int
-        let nextDueAt: Date
-
-        if isCorrect && (stats.stage == "NEW" || stats.stage == "LEARNING") {
-            lastIntervalSeconds = learningIntervalSeconds(correctCount: correctCount)
-            nextDueAt = now.addingTimeInterval(TimeInterval(lastIntervalSeconds))
-            stability = min(180, max(stats.stability, Double(lastIntervalSeconds) / 86_400))
-            difficulty = max(0.1, difficulty - 0.03)
-            ease = min(2.3, ease + 0.02)
-        } else if isCorrect {
-            let growth = 1 + min(0.15 + 0.05 * Double(correctStreak), 0.35)
-            stability = min(180, stability * growth * ease * timeFactor)
-            difficulty = max(0.1, difficulty - 0.03)
-            ease = min(2.3, ease + 0.02)
-            lastIntervalSeconds = max(600, Int((stability * 86_400).rounded()))
-            nextDueAt = now.addingTimeInterval(TimeInterval(lastIntervalSeconds))
-        } else {
-            stability = max(0.3, stability * 0.5)
-            difficulty = min(3.0, difficulty + 0.08)
-            ease = max(1.1, ease - 0.04)
-            lastIntervalSeconds = max(600, Int((stability * 0.3 * 86_400).rounded()))
-            nextDueAt = now.addingTimeInterval(TimeInterval(lastIntervalSeconds))
-        }
-
-        let stage = isCorrect
-            ? nextStageAfterCorrect(stats: stats, nextCorrectCount: correctCount, nextCorrectStreak: correctStreak, nextStability: stability)
-            : nextStageAfterWrong(stats: stats)
-
-        updated.answerCount = answerCount
-        updated.correctCount = correctCount
-        updated.wrongCount = wrongCount
-        updated.correctStreak = correctStreak
-        updated.wrongStreak = wrongStreak
-        updated.lastAnsweredAt = now
-        updated.lastCorrectAt = isCorrect ? now : stats.lastCorrectAt
-        updated.lastResult = isCorrect ? "correct" : "wrong"
-        updated.stage = stage
-        updated.stability = stability
-        updated.ease = ease
-        updated.difficulty = difficulty
-        updated.lastIntervalSeconds = lastIntervalSeconds
-        updated.emaAccuracy = emaAccuracy
-        updated.avgResponseTimeMs = averageResponseTime(previous: stats.avgResponseTimeMs, next: responseTimeMs)
-        updated.nextDueAt = nextDueAt
-        updated.updatedAt = now
-        return updated
-    }
-
-    private func nextStageAfterCorrect(
-        stats: ObsidianQuestionStats,
-        nextCorrectCount: Int,
-        nextCorrectStreak: Int,
-        nextStability: Double
-    ) -> String {
-        let masteredCandidate = nextCorrectCount >= 10
-            && adjustedAccuracy(correctCount: nextCorrectCount, answerCount: stats.answerCount + 1) >= 0.9
-            && nextStability >= 30
-
-        if masteredCandidate {
-            return "MASTERED"
-        }
-
-        if stats.stage == "LAPSE" && nextCorrectStreak >= 2 {
-            return "REVIEW"
-        }
-
-        if stats.stage == "NEW" {
-            return "LEARNING"
-        }
-
-        if stats.stage == "LEARNING" && nextCorrectCount >= 2 {
-            return "REVIEW"
-        }
-
-        return stats.stage
-    }
-
-    private func nextStageAfterWrong(stats: ObsidianQuestionStats) -> String {
-        if stats.stage == "MASTERED" || stats.stage == "REVIEW" {
-            return "LAPSE"
-        }
-
-        return "LEARNING"
-    }
-
-    private func responseTimeFactor(_ responseTimeMs: Int?) -> Double {
-        guard let responseTimeMs, responseTimeMs > 5_000 else {
-            return 1
-        }
-
-        if responseTimeMs <= 12_000 {
-            return 0.8
-        }
-
-        return 0.6
-    }
-
-    private func averageResponseTime(previous: Int?, next: Int?) -> Int? {
-        guard let next, next > 0 else {
-            return previous
-        }
-
-        guard let previous, previous > 0 else {
-            return next
-        }
-
-        return Int((Double(previous) * 0.7 + Double(next) * 0.3).rounded())
-    }
-
-    private func learningIntervalSeconds(correctCount: Int) -> Int {
-        let intervals = [600, 86_400, 259_200, 604_800, 1_209_600]
-        let index = max(0, min(intervals.count - 1, correctCount - 1))
-        return intervals[index]
-    }
-
-    private func adjustedAccuracy(correctCount: Int, answerCount: Int) -> Double {
-        (Double(correctCount) + 2) / (Double(answerCount) + 4)
-    }
-
-    private func sigmoid(_ value: Double) -> Double {
-        1 / (1 + exp(-value))
+    private func updateStats(_ stats: ObsidianQuestionStats, isCorrect: Bool) -> ObsidianQuestionStats {
+        ObsidianQuestionStats(status: isCorrect ? stats.status.advancedAfterCorrect() : stats.status.demotedAfterWrong())
     }
 
     private func appendRecentQuestionIds(_ recentQuestionIds: [String], _ nextQuestionId: String) -> [String] {
@@ -1506,10 +1214,8 @@ private final class KnodeStore {
             let scoped = try resolve(source)
 
             for fileURL in questionMarkdownFiles(in: scoped.url) {
-                let parsed = try parseMarkdownFile(fileURL)
-                let stats = stats(from: parsed)
                 let relativePath = relativePath(for: fileURL, rootURL: scoped.url)
-                if stats.questionItemId == questionItemId || pathQuestionItemId(sourceId: source.id, relativePath: relativePath) == questionItemId {
+                if pathQuestionItemId(sourceId: source.id, relativePath: relativePath) == questionItemId {
                     return (source, scoped.url, fileURL, scoped.stop)
                 }
             }

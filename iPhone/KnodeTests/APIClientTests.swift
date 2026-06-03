@@ -83,7 +83,7 @@ final class APIClientTests: XCTestCase {
         }
     }
 
-    func testRestoreAnswerMetadataReturnsQuestionToPreAnswerFrontMatter() async throws {
+    func testAnswerMetadataUpdatesStatusWithoutRemovingOtherFrontMatter() async throws {
         let client = makeClient()
         let folderURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
@@ -92,6 +92,11 @@ final class APIClientTests: XCTestCase {
 
         let markdownURL = folderURL.appendingPathComponent("Question.md")
         try """
+        ---
+        tag: math
+        answer_count: 7
+        stage: REVIEW
+        ---
         Answer body
         """.write(to: markdownURL, atomically: true, encoding: .utf8)
 
@@ -105,7 +110,6 @@ final class APIClientTests: XCTestCase {
         )
         let started = try await client.startQuiz(sources: [quizSource], questionCount: 1)
         let question = try XCTUnwrap(started.questions.first)
-        let beforeAnswer = try String(contentsOf: markdownURL, encoding: .utf8)
 
         let response = try await client.recordAnswer(
             RecordAnswerRequest(
@@ -120,14 +124,18 @@ final class APIClientTests: XCTestCase {
         )
 
         let answered = try String(contentsOf: markdownURL, encoding: .utf8)
-        XCTAssertTrue(answered.contains("answer_count: 1"))
-        XCTAssertTrue(answered.contains("correct_count: 1"))
+        XCTAssertTrue(answered.contains("tag: math"))
+        XCTAssertTrue(answered.contains("answer_count: 7"))
+        XCTAssertTrue(answered.contains("stage: REVIEW"))
+        XCTAssertTrue(answered.contains("status: mastered"))
+        XCTAssertEqual(response.stats.stage, "mastered")
 
         let undoToken = try XCTUnwrap(response.undoToken)
         try await client.restoreAnswerMetadata(undoToken)
 
         let restored = try String(contentsOf: markdownURL, encoding: .utf8)
-        XCTAssertEqual(restored, beforeAnswer)
+        XCTAssertTrue(restored.contains("tag: math"))
+        XCTAssertTrue(restored.contains("status: recognized"))
     }
 
     func testSelectedParentFolderMergesNestedDatabaseFolders() async throws {
@@ -170,6 +178,45 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(Set(started.questions.map(\.dataSourceId)), [source.id])
         XCTAssertEqual(Set(started.questions.map(\.dataSourceName)), [source.name])
         XCTAssertEqual(Set(started.questions.compactMap { $0.prompt.first?.displayText }), ["Matrix Rank", "Linear ODE"])
+    }
+
+    func testStartQuizPrioritizesLeastKnownStatus() async throws {
+        let client = makeClient()
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        try """
+        ---
+        status: mastered
+        ---
+        Mastered answer
+        """.write(
+            to: folderURL.appendingPathComponent("Mastered Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        Missing status answer
+        """.write(
+            to: folderURL.appendingPathComponent("Missing Status Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sources = try await client.addObsidianFolders([folderURL])
+        let source = try XCTUnwrap(sources.first)
+        let quizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+
+        let started = try await client.startQuiz(sources: [quizSource], questionCount: 1)
+
+        XCTAssertEqual(started.questions.first?.prompt.first?.displayText, "Missing Status Question")
     }
 
     func testRenamingObsidianFolderUsesCustomDatabaseName() async throws {
