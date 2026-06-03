@@ -986,6 +986,10 @@ private final class KnodeStore {
 
             for fileURL in questionMarkdownFiles(in: scoped.url) {
                 let parsed = try parseMarkdownFile(fileURL)
+                guard !hasIdeaFrontMatterTag(in: parsed) else {
+                    continue
+                }
+
                 let questionStats = stats(from: parsed)
                 let relativePath = relativePath(for: fileURL, rootURL: scoped.url)
                 let questionItemId = pathQuestionItemId(sourceId: source.id, relativePath: relativePath)
@@ -1090,6 +1094,65 @@ private final class KnodeStore {
         }
 
         return ParsedMarkdown(frontMatterLines: lines, fields: fields, body: body)
+    }
+
+    private func hasIdeaFrontMatterTag(in parsed: ParsedMarkdown) -> Bool {
+        let lines = parsed.frontMatterLines
+
+        for (index, line) in lines.enumerated() {
+            guard yamlKey(in: line)?.lowercased() == "tags",
+                  let colon = line.firstIndex(of: ":") else {
+                continue
+            }
+
+            let rawValue = String(line[line.index(after: colon)...])
+            if !cleanYAMLScalar(rawValue).isEmpty {
+                return frontMatterTagsContainIdea(rawValue)
+            }
+
+            for nestedLine in lines.dropFirst(index + 1) {
+                if yamlKey(in: nestedLine) != nil {
+                    break
+                }
+
+                let trimmed = nestedLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.hasPrefix("-") else {
+                    continue
+                }
+
+                let item = String(trimmed.dropFirst())
+                if frontMatterTagsContainIdea(item) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private func frontMatterTagsContainIdea(_ rawValue: String) -> Bool {
+        let cleaned = cleanYAMLScalar(rawValue)
+        guard !cleaned.isEmpty else {
+            return false
+        }
+
+        let listValue: String
+        if cleaned.hasPrefix("[") && cleaned.hasSuffix("]") {
+            listValue = String(cleaned.dropFirst().dropLast())
+        } else {
+            listValue = cleaned
+        }
+
+        return listValue
+            .split(separator: ",")
+            .map { cleanYAMLScalar(String($0)) }
+            .contains { value in
+                value
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+                    .lowercased() == "idea"
+            }
     }
 
     private func writeMetadata(to fileURL: URL, parsed: ParsedMarkdown, stats: ObsidianQuestionStats) throws {

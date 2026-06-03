@@ -180,6 +180,53 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(Set(started.questions.compactMap { $0.prompt.first?.displayText }), ["Matrix Rank", "Linear ODE"])
     }
 
+    func testStartQuizSkipsIdeaFrontmatterTags() async throws {
+        let client = makeClient()
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("KnodeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+
+        try """
+        ---
+        tags:
+          - math
+          - idea
+        ---
+        Idea list answer
+        """.write(
+            to: folderURL.appendingPathComponent("Idea List.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        ---
+        tags: [math]
+        ---
+        Normal answer
+        """.write(
+            to: folderURL.appendingPathComponent("Normal Question.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sources = try await client.addObsidianFolders([folderURL])
+        let source = try XCTUnwrap(sources.first)
+        let quizSource = QuizSourceConfig(
+            dataSourceId: source.id,
+            dataSourceName: source.name,
+            dataSourceUrl: source.url,
+            mappings: [:]
+        )
+
+        let sync = try await client.syncSources([quizSource])
+        XCTAssertEqual(sync.questionCount, 1)
+
+        let started = try await client.startQuiz(sources: [quizSource], questionCount: 10)
+        XCTAssertEqual(started.totalCandidates, 1)
+        XCTAssertEqual(started.questions.first?.prompt.first?.displayText, "Normal Question")
+    }
+
     func testStartQuizPrioritizesLeastKnownStatus() async throws {
         let client = makeClient()
         let folderURL = FileManager.default.temporaryDirectory
